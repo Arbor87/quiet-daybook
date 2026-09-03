@@ -30,7 +30,16 @@ export const db = new DaybookDB()
 export const uid = () => crypto.randomUUID()
 export const localISODate = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 export const todayISO = () => localISODate()
-export const defaultSettings: Settings = { id: 'main', aiBaseUrl: 'https://api.openai.com/v1', aiModel: 'gpt-4o-mini', aiApiKey: '', confidenceThreshold: 0.85, categories: ['餐饮', '交通', '购物', '居住', '娱乐', '学习', '医疗', '其他'] }
+export const QWEN_API_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+export const QWEN_DEFAULT_MODEL = 'qwen-plus'
+export const defaultSettings: Settings = { id: 'main', aiBaseUrl: QWEN_API_BASE_URL, aiModel: QWEN_DEFAULT_MODEL, aiApiKey: '', confidenceThreshold: 0.85, categories: ['餐饮', '交通', '购物', '居住', '娱乐', '学习', '医疗', '其他'] }
+
+export function migrateLegacyAISettings(settings: Settings): Settings {
+  if (settings.aiBaseUrl.replace(/\/$/, '') === 'https://api.openai.com/v1' && settings.aiModel === 'gpt-4o-mini') {
+    return { ...settings, aiBaseUrl: QWEN_API_BASE_URL, aiModel: QWEN_DEFAULT_MODEL, aiApiKey: '' }
+  }
+  return settings
+}
 
 export function effectiveTaskStatus(task: Task, date: string): TaskStatus {
   return task.recurrence ? (task.occurrenceStatuses?.[date] ?? 'todo') : task.status

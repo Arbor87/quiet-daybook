@@ -27,6 +27,7 @@ npm run build
 ## 数据与 AI
 
 - 电脑和手机各自保存独立数据，不会自动同步。请在设置中定期导出 JSON 备份。
-- 可配置任何支持 OpenAI Chat Completions 格式且允许浏览器 CORS 的接口。
+- 默认使用阿里云百炼的通义千问 OpenAI 兼容接口：`https://dashscope.aliyuncs.com/compatible-mode/v1`，模型为 `qwen-plus`。
+- 中国内地通用域名仍可正常使用；如需官方推荐的业务空间专属域名，可在百炼控制台查看 Workspace ID 后替换。
 - API Key 只保存在本机 IndexedDB，不会进入 JSON 备份或 Git 仓库；不要在公共电脑保存。
 - 未配置 AI 或请求失败时，记账会降级为本地金额和关键词解析。

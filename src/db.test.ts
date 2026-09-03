@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { effectiveTaskStatus, recurrenceMatches, type Task } from './db'
+import { effectiveTaskStatus, migrateLegacyAISettings, QWEN_API_BASE_URL, recurrenceMatches, type Settings, type Task } from './db'
 
 describe('recurrenceMatches', () => {
   it('handles daily, weekly, weekdays and monthly rules', () => {
@@ -21,5 +21,12 @@ describe('effectiveTaskStatus', () => {
   it('keeps recurring occurrence states independent', () => {
     expect(effectiveTaskStatus(task, '2026-09-03')).toBe('done')
     expect(effectiveTaskStatus(task, '2026-09-04')).toBe('todo')
+  })
+})
+
+describe('migrateLegacyAISettings', () => {
+  it('moves the original OpenAI defaults to Qwen without forwarding the old key', () => {
+    const legacy = { id: 'main', aiBaseUrl: 'https://api.openai.com/v1', aiModel: 'gpt-4o-mini', aiApiKey: 'old-secret', confidenceThreshold: 0.85, categories: [] } as Settings
+    expect(migrateLegacyAISettings(legacy)).toMatchObject({ aiBaseUrl: QWEN_API_BASE_URL, aiModel: 'qwen-plus', aiApiKey: '' })
   })
 })
