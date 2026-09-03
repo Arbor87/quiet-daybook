@@ -14,15 +14,17 @@ export interface Expense {
   id: string; date: string; amountCny: number; category: string; note?: string
   merchant?: string; paymentMethod?: string; source: 'manual' | 'ai'; aiConfidence?: number; createdAt: string
 }
-export interface Budget { id: string; month: string; category: string; limitCny: number }
+export interface Budget { id: string; month: string; category: string; limitCny: number; startDate?: string }
+export interface Balance { id: string; name: string; amountCny: number; location: string; note?: string; createdAt: string; updatedAt: string }
 export interface Settings { id: 'main'; aiBaseUrl: string; aiModel: string; aiApiKey: string; confidenceThreshold: number; categories: string[] }
 
 class DaybookDB extends Dexie {
   tasks!: Table<Task, string>; ideas!: Table<Idea, string>; expenses!: Table<Expense, string>
-  budgets!: Table<Budget, string>; settings!: Table<Settings, string>
+  budgets!: Table<Budget, string>; balances!: Table<Balance, string>; settings!: Table<Settings, string>
   constructor() {
     super('quiet-daybook')
     this.version(1).stores({ tasks: 'id,date,status', ideas: 'id,date', expenses: 'id,date,category', budgets: 'id,month,category', settings: 'id' })
+    this.version(2).stores({ balances: 'id,location' })
   }
 }
 
