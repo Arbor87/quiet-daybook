@@ -18,3 +18,13 @@
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
 .page{animation-fill-mode:none}
 @media(max-width:720px){.modal-backdrop{place-items:start center;padding:10px}.modal{max-height:calc(100dvh - 20px)}}
+
+/* Wallet daily ledger */
+.breakdown-panel{margin-bottom:28px}.breakdown-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 28px}
+.ledger-heading{display:flex;align-items:end;justify-content:space-between;margin:0 2px 14px}.ledger-heading>span{font:500 12px 'DM Mono';color:#8c968d}
+.expense-groups{display:flex;flex-direction:column;gap:14px}.expense-day{overflow:hidden;background:#fbf8f2;border:1px solid #d9d1c4;border-radius:12px}
+.expense-day-head{display:flex;align-items:center;justify-content:space-between;padding:15px 18px;background:#f0ebe2;border-bottom:1px solid #ddd4c8}
+.expense-day-date{display:flex;align-items:center;gap:12px}.expense-day-date>strong{display:grid;place-items:center;width:43px;height:43px;border-radius:8px;background:#c9785a;color:#fff;font:600 20px 'DM Mono';box-shadow:3px 3px 0 #dfc4b5}.expense-day-date div{display:flex;flex-direction:column}.expense-day-date b{font:600 15px 'Noto Serif SC'}.expense-day-date span,.expense-day-total span{font-size:11px;color:#8a948b}
+.expense-day-total{text-align:right}.expense-day-total b{display:block;font:500 15px 'DM Mono';margin-top:2px}.expense-day-list{padding:2px 18px}
+.expense-row{gap:13px}.expense-main{min-width:0;flex:1}.expense-main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.expense-row>strong{flex:none}.expense-delete{width:30px;height:30px;display:grid;place-items:center;flex:none;border:0;border-radius:7px;background:transparent;color:#a7aaa4;cursor:pointer}.expense-delete:hover,.expense-delete:focus-visible{background:#f5e4dc;color:#a75445;outline:none}
+@media(max-width:720px){.breakdown-grid{grid-template-columns:1fr}.expense-day-head{padding:13px 14px}.expense-day-list{padding:2px 13px}.expense-day-date>strong{width:39px;height:39px}.expense-row{gap:9px}.expense-main small{max-width:180px}}
