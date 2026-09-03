@@ -12,7 +12,7 @@ export interface Task {
 export interface Idea { id: string; date: string; content: string; tags: string[]; createdAt: string; updatedAt: string }
 export interface Expense {
   id: string; date: string; amountCny: number; category: string; note?: string
-  merchant?: string; paymentMethod?: string; source: 'manual' | 'ai'; aiConfidence?: number; createdAt: string
+  merchant?: string; paymentMethod?: string; source: 'manual' | 'ai'; aiConfidence?: number; balanceId?: string; createdAt: string
 }
 export interface Budget { id: string; month: string; category: string; limitCny: number; startDate?: string }
 export interface Balance { id: string; name: string; amountCny: number; location: string; note?: string; createdAt: string; updatedAt: string }
