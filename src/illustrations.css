@@ -71,6 +71,7 @@ h2 { color: var(--ink); }
   border-radius: 16px 22px 18px 24px;
   box-shadow: 9px 10px 0 rgba(23, 36, 54, .14);
   transform: rotate(2deg);
+  overflow: visible;
 }
 .mascot-stage::before,
 .page-feature-art::before {
