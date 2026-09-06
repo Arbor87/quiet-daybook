@@ -18,18 +18,23 @@ export interface Budget { id: string; month: string; category: string; limitCny:
 export interface Balance { id: string; name: string; amountCny: number; location: string; note?: string; createdAt: string; updatedAt: string }
 export interface Settings { id: 'main'; aiBaseUrl: string; aiModel: string; aiApiKey: string; confidenceThreshold: number; categories: string[] }
 export interface ApiKey { id: string; name: string; service: string; key: string; note?: string; createdAt: string; updatedAt: string }
+export type TimeEventType = 'reward' | 'study'
+export interface TimeRule { id: string; title: string; description: string; buttonLabel: string; minutesPerClick: number; icon: string; color: string; sortOrder: number; enabled: boolean; createdAt: string; updatedAt: string }
+export interface TimeEvent { id: string; date: string; ruleId: string; ruleTitleSnapshot: string; type: TimeEventType; minutes: number; count: number; createdAt: string; updatedAt: string }
 export interface SyncChange { id?: number; collection: SyncCollection; recordId: string; updatedAt: string; deleted?: boolean }
-export type SyncCollection = 'tasks' | 'ideas' | 'expenses' | 'budgets' | 'balances'
+export type SyncCollection = 'tasks' | 'ideas' | 'expenses' | 'budgets' | 'balances' | 'timeRules' | 'timeEvents'
 
 class DaybookDB extends Dexie {
   tasks!: Table<Task, string>; ideas!: Table<Idea, string>; expenses!: Table<Expense, string>
   budgets!: Table<Budget, string>; balances!: Table<Balance, string>; settings!: Table<Settings, string>; apiKeys!: Table<ApiKey, string>; syncChanges!: Table<SyncChange, number>
+  timeRules!: Table<TimeRule, string>; timeEvents!: Table<TimeEvent, string>
   constructor() {
     super('quiet-daybook')
     this.version(1).stores({ tasks: 'id,date,status', ideas: 'id,date', expenses: 'id,date,category', budgets: 'id,month,category', settings: 'id' })
     this.version(2).stores({ balances: 'id,location' })
     this.version(3).stores({ apiKeys: 'id,service' })
     this.version(4).stores({ syncChanges: '++id,collection,recordId,updatedAt' })
+    this.version(5).stores({ timeRules: 'id,sortOrder,enabled', timeEvents: 'id,date,type,ruleId,updatedAt' })
   }
 }
 
@@ -39,7 +44,7 @@ export const setSyncCaptureEnabled = (enabled: boolean) => { captureSyncChanges 
 
 // Capture local mutations so deletes can be propagated to other devices.
 const syncTables: Array<[SyncCollection, Table<any, string>]> = [
-  ['tasks', db.tasks], ['ideas', db.ideas], ['expenses', db.expenses], ['budgets', db.budgets], ['balances', db.balances],
+  ['tasks', db.tasks], ['ideas', db.ideas], ['expenses', db.expenses], ['budgets', db.budgets], ['balances', db.balances], ['timeRules', db.timeRules], ['timeEvents', db.timeEvents],
 ]
 for (const [collection, table] of syncTables) {
   table.hook('creating', (_key, obj) => { if (captureSyncChanges) void db.syncChanges.add({ collection, recordId: obj.id, updatedAt: obj.updatedAt ?? new Date().toISOString() }) })

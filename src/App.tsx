@@ -17,6 +17,7 @@ import {
   Sparkles,
   Trash2,
   Wallet,
+  Clock3,
   X,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -37,11 +38,13 @@ import {
   type Settings,
   type Task,
   type TaskStatus,
+  type TimeRule,
+  type TimeEvent,
 } from "./db";
 import { supabase, supabaseConfigured } from "./supabase";
 import { syncUser, type SyncResult } from "./sync";
 
-type Tab = "today" | "calendar" | "ideas" | "wallet";
+type Tab = "today" | "calendar" | "ideas" | "wallet" | "time";
 const pad = (n: number) => String(n).padStart(2, "0");
 const fmtDate = (iso: string) =>
   new Intl.DateTimeFormat("zh-CN", {
@@ -88,6 +91,8 @@ export function validateBackup(value: unknown): value is {
   expenses: Expense[];
   budgets: Budget[];
   balances?: Balance[];
+  timeRules?: TimeRule[];
+  timeEvents?: TimeEvent[];
 } {
   if (!value || typeof value !== "object") return false;
   const p = value as Record<string, unknown>;
@@ -174,6 +179,8 @@ export default function App() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [balances, setBalances] = useState<Balance[]>([]);
   const [settings, setSettings] = useState<Settings>(defaultSettings);
+  const [timeRules, setTimeRules] = useState<TimeRule[]>([]);
+  const [timeEvents, setTimeEvents] = useState<TimeEvent[]>([]);
   const [session, setSession] = useState<any>(null);
   const [authReady, setAuthReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncResult>("synced");
@@ -186,6 +193,8 @@ export default function App() {
   const [showQwenKey, setShowQwenKey] = useState(false);
   const [showBudget, setShowBudget] = useState(false);
   const [showBalances, setShowBalances] = useState(false);
+  const [showTimeRule, setShowTimeRule] = useState(false);
+  const [editingTimeRule, setEditingTimeRule] = useState<TimeRule | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editingIdea, setEditingIdea] = useState<Idea | null>(null);
   const reload = async () => {
@@ -197,6 +206,8 @@ export default function App() {
       nextBudgets,
       nextBalances,
       nextSettings,
+      nextTimeRules,
+      nextTimeEvents,
     ] = await Promise.all([
       db.tasks.toArray(),
       db.ideas.orderBy("date").reverse().toArray(),
@@ -204,6 +215,8 @@ export default function App() {
       db.budgets.toArray(),
       db.balances.toArray(),
       db.settings.get("main"),
+      db.timeRules.toArray(),
+      db.timeEvents.orderBy("date").reverse().toArray(),
     ]);
     // A slower refresh started earlier must never overwrite a newer snapshot.
     if (version !== reloadVersion.current) return;
@@ -213,6 +226,15 @@ export default function App() {
     setBudgets(nextBudgets);
     setBalances(nextBalances);
     setSettings(nextSettings ?? defaultSettings);
+    if (!nextTimeRules.length) {
+      const now = new Date().toISOString();
+      const defaults: TimeRule[] = [
+        { id: uid(), title: "普通局输了", description: "打瓦普通局失败后的学习奖励", buttonLabel: "输了 +1", minutesPerClick: 30, icon: "🎮", color: "#e8edff", sortOrder: 0, enabled: true, createdAt: now, updatedAt: now },
+        { id: uid(), title: "排位赛输了", description: "打瓦排位赛失败后的学习奖励", buttonLabel: "输了 +1", minutesPerClick: 60, icon: "🏆", color: "#fff0dc", sortOrder: 1, enabled: true, createdAt: now, updatedAt: now },
+      ];
+      await db.timeRules.bulkAdd(defaults); setTimeRules(defaults);
+    } else setTimeRules(nextTimeRules);
+    setTimeEvents(nextTimeEvents);
   };
   useEffect(() => {
     let active = true;
@@ -242,7 +264,7 @@ export default function App() {
     if (parts[0] === "day" && /^\d{4}-\d{2}-\d{2}$/.test(parts[1] ?? "")) {
       setSelectedDate(parts[1]);
       setTab("today");
-    } else if (["calendar", "ideas", "wallet"].includes(parts[0]))
+    } else if (["calendar", "ideas", "wallet", "time"].includes(parts[0]))
       setTab(parts[0] as Tab);
     else if (location.pathname === "/")
       navigate(`/day/${todayISO()}`, { replace: true });
@@ -268,6 +290,9 @@ export default function App() {
     if (next === "today") navigate(`/day/${todayISO()}`);
     else navigate(`/${next}`);
   };
+  const addReward = async (rule: TimeRule) => { const now = new Date().toISOString(); await db.timeEvents.add({ id: uid(), date: todayISO(), ruleId: rule.id, ruleTitleSnapshot: rule.title, type: "reward", minutes: rule.minutesPerClick, count: 1, createdAt: now, updatedAt: now }); await reload(); };
+  const saveTimeRule = async (rule: TimeRule) => { await db.timeRules.put(rule); setShowTimeRule(false); setEditingTimeRule(null); await reload(); };
+  const deleteTimeRule = async (rule: TimeRule) => { if (window.confirm(`确定删除「${rule.title}」吗？历史记录会保留。`)) { await db.timeRules.delete(rule.id); await reload(); } };
   const toggleTask = async (task: Task) => {
     const source = await db.tasks.get(task.id);
     if (!source) return;
@@ -356,6 +381,10 @@ export default function App() {
         <div className="brand-mark">静日</div>
         <div className="brand-sub">MY DAY OS</div>
         <div className="top-actions">
+          <div className={`sync-indicator ${syncStatus}`} title={session.user.email}>
+            <span />{syncStatus === "synced" ? "已同步" : syncStatus === "pending" ? "待同步" : syncStatus === "error" ? "同步失败" : "同步中"}
+          </div>
+          <button className="account-btn" onClick={() => void supabase.auth.signOut()} title="退出登录">{session.user.email?.split("@")[0] ?? "账号"} · 退出</button>
           <button
             className="icon-btn"
             onClick={() => setShowKeyManager(true)}
@@ -364,10 +393,6 @@ export default function App() {
           >
             <KeyRound size={18} />
           </button>
-          <div className={`sync-indicator ${syncStatus}`} title={session.user.email}>
-            <span />{syncStatus === "synced" ? "已同步" : syncStatus === "pending" ? "待同步" : syncStatus === "error" ? "同步失败" : "同步中"}
-          </div>
-          <button className="account-btn" onClick={() => void supabase.auth.signOut()} title="退出登录">{session.user.email?.split("@")[0] ?? "账号"} · 退出</button>
           <button
             className="icon-btn"
             onClick={() => setShowSettings(true)}
@@ -442,6 +467,7 @@ export default function App() {
             onDelete={deleteExpense}
           />
         )}
+        {tab === "time" && <TimeView rules={timeRules} events={timeEvents} onReward={addReward} onManage={() => { setEditingTimeRule(null); setShowTimeRule(true); }} onEdit={(r) => { setEditingTimeRule(r); setShowTimeRule(true); }} onDelete={deleteTimeRule} onSaved={reload} />}
       </main>
       <nav className="bottom-nav">
         {(
@@ -450,6 +476,7 @@ export default function App() {
             ["calendar", CalendarDays, "月历"],
             ["ideas", Lightbulb, "想法"],
             ["wallet", Wallet, "钱包"],
+            ["time", Clock3, "时间"],
           ] as const
         ).map(([id, Icon, label]) => (
           <button
@@ -525,6 +552,7 @@ export default function App() {
           }}
         />
       )}
+      {showTimeRule && <TimeRuleModal initial={editingTimeRule} onClose={() => setShowTimeRule(false)} onSaved={saveTimeRule} />}
       {showBudget && (
         <BudgetModal
           month={monthKey(selectedDate)}
@@ -1187,6 +1215,27 @@ function Empty({ text, action, onClick }: any) {
     </div>
   );
 }
+function TimeView({ rules, events, onReward, onManage, onEdit, onDelete, onSaved }: { rules: TimeRule[]; events: TimeEvent[]; onReward: (r: TimeRule) => void; onManage: () => void; onEdit: (r: TimeRule) => void; onDelete: (r: TimeRule) => void; onSaved: () => void }) {
+  const today = todayISO();
+  const reward = events.filter(e => e.type === "reward").reduce((n, e) => n + e.minutes, 0);
+  const study = events.filter(e => e.type === "study").reduce((n, e) => n + e.minutes, 0);
+  const todayReward = events.filter(e => e.date === today && e.type === "reward").reduce((n, e) => n + e.minutes, 0);
+  const todayStudy = events.filter(e => e.date === today && e.type === "study").reduce((n, e) => n + e.minutes, 0);
+  const balance = Math.max(0, reward - study);
+  const savedTimer = (() => { try { return JSON.parse(localStorage.getItem("quiet-daybook-time-timer") || "null"); } catch { return null; } })();
+  const [minutes, setMinutes] = useState(savedTimer?.minutes ?? 25); const [remaining, setRemaining] = useState(savedTimer?.remaining ?? 0); const [running, setRunning] = useState(Boolean(savedTimer?.running));
+  useEffect(() => { localStorage.setItem("quiet-daybook-time-timer", JSON.stringify({ minutes, remaining, running })); }, [minutes, remaining, running]);
+  useEffect(() => { if (!running) return; const id = window.setInterval(() => setRemaining((v: number) => { if (v <= 1) { setRunning(false); void finish(minutes); return 0; } return v - 1; }), 60000); return () => window.clearInterval(id); }, [running]);
+  const finish = async (planned: number) => { const used = Math.max(0, planned - Math.ceil(remaining / 60)); if (used > 0) { const now = new Date().toISOString(); await db.timeEvents.add({ id: uid(), date: today, ruleId: "study", ruleTitleSnapshot: "学习", type: "study", minutes: used, count: 1, createdAt: now, updatedAt: now }); onSaved(); } };
+  const start = () => { const m = Math.max(1, Math.floor(minutes)); if (m <= balance) { setRemaining(m * 60); setRunning(true); } };
+  return <section className="page page-time"><div className="page-title"><div><p className="eyebrow">TIME MANAGEMENT</p><h1>时间管理</h1><p className="muted">把输掉的对局，换成赢回来的专注。</p></div><button className="primary" onClick={onManage}>管理板块</button></div><div className="time-balance panel"><p>学习时间余额</p><strong>{Math.floor(balance / 60)}小时 {balance % 60}分</strong><div className="time-stats"><span>今日获得 <b>{todayReward} 分钟</b></span><span>今日学习 <b>{todayStudy} 分钟</b></span><span>净增加 <b>{todayReward - todayStudy} 分钟</b></span></div></div><div className="time-timer panel"><div><p className="eyebrow">FOCUS TIMER</p><h2>{running ? `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}` : "开始一段学习"}</h2></div>{!running ? <div className="timer-start"><input type="number" min="1" value={minutes} onChange={e => setMinutes(Number(e.target.value))} /><span>分钟</span><button className="primary" disabled={minutes > balance || minutes < 1} onClick={start}>开始学习</button></div> : <button className="danger" onClick={() => { setRunning(false); void finish(minutes); }}>结束并记录</button>}</div><div className="time-rule-grid">{rules.filter(r => r.enabled).sort((a,b) => a.sortOrder-b.sortOrder).map(r => { const count = events.filter(e => e.date === today && e.ruleId === r.id && e.type === "reward").reduce((n,e)=>n+e.count,0); return <div className="time-rule-card panel" key={r.id} style={{borderTopColor:r.color}}><div className="time-rule-icon">{r.icon}</div><div className="time-rule-copy"><h2>{r.title}</h2><p>{r.description}</p><small>今日 {count} 次 · 每次 +{r.minutesPerClick} 分钟</small></div><button className="primary" onClick={() => onReward(r)}>{r.buttonLabel}</button><div className="time-rule-actions"><button onClick={() => onEdit(r)}>编辑</button><button onClick={() => onDelete(r)}>删除</button></div></div>})}</div><div className="panel"><div className="panel-head"><h2>最近记录</h2></div>{events.slice(0,10).map(e => <div className="time-event" key={e.id}><span>{e.date}</span><b>{e.ruleTitleSnapshot}</b><em className={e.type}>{e.type === "reward" ? `+${e.minutes}` : `-${e.minutes}`} 分钟</em></div>)}</div></section>;
+}
+
+function TimeRuleModal({ initial, onClose, onSaved }: { initial: TimeRule | null; onClose: () => void; onSaved: (r: TimeRule) => void }) {
+  const now = new Date().toISOString(); const [form, setForm] = useState<TimeRule>(initial ?? { id: uid(), title: "", description: "", buttonLabel: "输了 +1", minutesPerClick: 30, icon: "🎮", color: "#e8edff", sortOrder: 0, enabled: true, createdAt: now, updatedAt: now });
+  return <Modal title={initial ? "编辑时间板块" : "新增时间板块"} onClose={onClose}><label>名称<input value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label>说明<input value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></label><label>按钮文字<input value={form.buttonLabel} onChange={e=>setForm({...form,buttonLabel:e.target.value})}/></label><label>每次增加分钟数<input type="number" min="1" value={form.minutesPerClick} onChange={e=>setForm({...form,minutesPerClick:Number(e.target.value)})}/></label><label>图标<input value={form.icon} onChange={e=>setForm({...form,icon:e.target.value})}/></label><label>颜色<input type="color" value={form.color} onChange={e=>setForm({...form,color:e.target.value})}/></label><label><input type="checkbox" checked={form.enabled} onChange={e=>setForm({...form,enabled:e.target.checked})}/> 启用</label><button className="primary full" disabled={!form.title.trim() || !form.buttonLabel.trim() || form.minutesPerClick < 1} onClick={()=>onSaved({...form,title:form.title.trim(),buttonLabel:form.buttonLabel.trim(),updatedAt:new Date().toISOString()})}>保存</button></Modal>;
+}
+
 function Modal({ title, children, onClose, className = "" }: any) {
   return (
     <div className="modal-backdrop">
@@ -1848,6 +1897,8 @@ function SettingsModal({
       budgets: await db.budgets.toArray(),
       balances: await db.balances.toArray(),
       settings: safeSettings,
+      timeRules: await db.timeRules.toArray(),
+      timeEvents: await db.timeEvents.toArray(),
     };
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(payload, null, 2)], {
@@ -1886,6 +1937,7 @@ function SettingsModal({
           if (p.balances) await db.balances.bulkAdd(p.balances);
         },
       );
+      await db.transaction("rw", db.timeRules, db.timeEvents, async () => { await db.timeRules.clear(); await db.timeEvents.clear(); if (p.timeRules) await db.timeRules.bulkAdd(p.timeRules); if (p.timeEvents) await db.timeEvents.bulkAdd(p.timeEvents); });
       alert("备份已恢复。API Key 出于安全原因不会随备份导入。");
       onSaved(form);
     } catch {
@@ -1916,6 +1968,7 @@ function SettingsModal({
         await db.balances.clear();
       },
     );
+    await db.transaction("rw", db.timeRules, db.timeEvents, async () => { await db.timeRules.clear(); await db.timeEvents.clear(); });
     onSaved(form);
     window.location.reload();
   };
