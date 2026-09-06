@@ -39,17 +39,46 @@ class DaybookDB extends Dexie {
 }
 
 export const db = new DaybookDB()
-let captureSyncChanges = true
-export const setSyncCaptureEnabled = (enabled: boolean) => { captureSyncChanges = enabled }
+const remoteTransactions = new WeakSet<object>()
+const immediateSyncChanges = new Map<string, SyncChange>()
+const changeKey = (change: SyncChange) => `${change.collection}:${change.recordId}`
+const rememberSyncChange = (change: SyncChange) => {
+  immediateSyncChanges.set(changeKey(change), change)
+  // Keep a durable outbox for reload/offline recovery. The in-memory copy is
+  // synchronous so a save followed immediately by sync cannot miss it.
+  void db.syncChanges.add(change).catch((error) => console.warn('failed to queue sync change', error))
+}
+export const getImmediateSyncChanges = () => [...immediateSyncChanges.values()]
+export const forgetImmediateSyncChanges = (changes: SyncChange[]) => {
+  for (const change of changes) {
+    const key = changeKey(change)
+    if (immediateSyncChanges.get(key)?.updatedAt === change.updatedAt)
+      immediateSyncChanges.delete(key)
+  }
+}
+export async function putFromSync(collection: SyncCollection, value: any) {
+  const table = (db as any)[collection] as Table<any, string>
+  await db.transaction('rw', table, async () => {
+    if (Dexie.currentTransaction) remoteTransactions.add(Dexie.currentTransaction)
+    await table.put(value)
+  })
+}
+export async function deleteFromSync(collection: SyncCollection, id: string) {
+  const table = (db as any)[collection] as Table<any, string>
+  await db.transaction('rw', table, async () => {
+    if (Dexie.currentTransaction) remoteTransactions.add(Dexie.currentTransaction)
+    await table.delete(id)
+  })
+}
 
 // Capture local mutations so deletes can be propagated to other devices.
 const syncTables: Array<[SyncCollection, Table<any, string>]> = [
   ['tasks', db.tasks], ['ideas', db.ideas], ['expenses', db.expenses], ['budgets', db.budgets], ['balances', db.balances], ['timeRules', db.timeRules], ['timeEvents', db.timeEvents],
 ]
 for (const [collection, table] of syncTables) {
-  table.hook('creating', (_key, obj) => { if (captureSyncChanges) void db.syncChanges.add({ collection, recordId: obj.id, updatedAt: obj.updatedAt ?? new Date().toISOString() }) })
-  table.hook('updating', (_changes, _key, obj) => { if (captureSyncChanges) void db.syncChanges.add({ collection, recordId: obj.id, updatedAt: obj.updatedAt ?? new Date().toISOString() }) })
-  table.hook('deleting', (key, _obj) => { if (captureSyncChanges) void db.syncChanges.add({ collection, recordId: String(key), updatedAt: new Date().toISOString(), deleted: true }) })
+  table.hook('creating', (_key, obj, transaction) => { if (!remoteTransactions.has(transaction)) rememberSyncChange({ collection, recordId: obj.id, updatedAt: obj.updatedAt ?? new Date().toISOString() }) })
+  table.hook('updating', (changes, _key, obj, transaction) => { if (!remoteTransactions.has(transaction)) rememberSyncChange({ collection, recordId: obj.id, updatedAt: String((changes as any).updatedAt ?? new Date().toISOString()) }) })
+  table.hook('deleting', (key, _obj, transaction) => { if (!remoteTransactions.has(transaction)) rememberSyncChange({ collection, recordId: String(key), updatedAt: new Date().toISOString(), deleted: true }) })
 }
 export const uid = () => crypto.randomUUID()
 export const localISODate = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`

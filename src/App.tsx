@@ -183,7 +183,7 @@ export default function App() {
   const [timeEvents, setTimeEvents] = useState<TimeEvent[]>([]);
   const [session, setSession] = useState<any>(null);
   const [authReady, setAuthReady] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<SyncResult>("synced");
+  const [syncStatus, setSyncStatus] = useState<SyncResult>("pending");
   const reloadVersion = useRef(0);
   const [showTask, setShowTask] = useState(false);
   const [showIdea, setShowIdea] = useState(false);
@@ -244,20 +244,30 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!session?.user?.id) return;
-    const retry = () => { setSyncStatus("pending"); void syncUser(session.user.id).then((result) => { setSyncStatus(result); if (result === "synced") void reload(); }); };
-    window.addEventListener("online", retry);
-    const timer = window.setInterval(() => { if (navigator.onLine) retry(); }, 60000);
+    let active = true;
+    const synchronize = async () => {
+      if (!active) return;
+      setSyncStatus("pending");
+      const result = await syncUser(session.user.id);
+      if (!active) return;
+      setSyncStatus(result);
+      if (result === "synced") await reload();
+    };
+    const online = () => void synchronize();
     void (async () => {
       const current = await db.settings.get("main");
       const next = current ? migrateLegacyAISettings(current) : defaultSettings;
       await db.settings.put(next);
       await reload();
-      setSyncStatus("pending");
-      const result = await syncUser(session.user.id);
-      setSyncStatus(result);
-      await reload();
+      await synchronize();
     })();
-    return () => { window.removeEventListener("online", retry); window.clearInterval(timer); };
+    window.addEventListener("online", online);
+    const timer = window.setInterval(() => { if (navigator.onLine) void synchronize(); }, 60000);
+    return () => {
+      active = false;
+      window.removeEventListener("online", online);
+      window.clearInterval(timer);
+    };
   }, [session?.user?.id]);
   useEffect(() => {
     const parts = location.pathname.split("/").filter(Boolean);
@@ -382,7 +392,7 @@ export default function App() {
         <div className="brand-sub">MY DAY OS</div>
         <div className="top-actions">
           <div className={`sync-indicator ${syncStatus}`} title={session.user.email}>
-            <span />{syncStatus === "synced" ? "已同步" : syncStatus === "pending" ? "待同步" : syncStatus === "error" ? "同步失败" : "同步中"}
+            <span />{syncStatus === "synced" ? "账号已同步" : syncStatus === "pending" ? "同步中" : "同步失败"}
           </div>
           <button className="account-btn" onClick={() => void supabase.auth.signOut()} title="退出登录">{session.user.email?.split("@")[0] ?? "账号"} · 退出</button>
           <button
@@ -571,7 +581,12 @@ export default function App() {
           onClose={() => setShowBalances(false)}
           onSaved={() => {
             setShowBalances(false);
-            reload();
+            void reload();
+            setSyncStatus("pending");
+            void syncUser(session.user.id).then(async (result) => {
+              setSyncStatus(result);
+              if (result === "synced") await reload();
+            });
           }}
         />
       )}
