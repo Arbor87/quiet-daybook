@@ -136,6 +136,26 @@ h2 { color: var(--ink); }
 .task-row { border-bottom: 1px dashed #e4d8c9; padding: 13px 2px; }
 .status-dot { border-color: #c8b9a8; border-radius: 8px 10px 7px 9px; }
 .status-dot.done { background: var(--blue); border-color: var(--blue); }
+.status-dot {
+  width: auto;
+  min-width: 68px;
+  height: 32px;
+  padding: 0 9px 0 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-width: 1.5px;
+  border-radius: 999px;
+  font: 700 10px 'DM Mono';
+  transition: transform .18s ease, background .18s ease, color .18s ease;
+}
+.status-dot:hover { transform: translateY(-1px) rotate(-1deg); }
+.status-dot.todo { background: #fffdf8; color: #8a7967; }
+.status-dot.doing { background: #edf1ff; color: var(--blue); }
+.status-dot.done { background: #27633a; border-color: #27633a; color: #fff; }
+.status-icon { display: grid; place-items: center; }
+.status-label { line-height: 1; }
 .task-copy-btn:focus-visible, .idea-button:focus-visible, .day-cell:focus-visible, button:focus-visible { outline: 3px solid rgba(60, 104, 232, .35); outline-offset: 3px; }
 
 .page-feature-art {
@@ -178,6 +198,14 @@ h2 { color: var(--ink); }
 .day-cell.today:not(.selected) b { background: var(--coral); color: #fff; }
 .day-mark { background: #ffd85b; color: var(--ink); border-radius: 999px; width: 18px; margin: 3px auto 0; }
 .selected .day-mark { background: #fff; color: var(--blue); }
+.day-counts { display: flex; justify-content: center; gap: 3px; margin-top: 4px; min-height: 17px; }
+.day-counts i, .calendar-legend i { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px; font: 700 10px 'DM Mono'; font-style: normal; }
+.done-count { background: #ccebd3; color: #27633a; }
+.pending-count { background: #ffd9d0; color: #b95345; }
+.selected .done-count { background: #fff; color: #27633a; }
+.selected .pending-count { background: #fff; color: #b95345; }
+.calendar-legend { display: flex; justify-content: center; gap: 18px; margin-top: 13px; color: #7e756b; font-size: 11px; }
+.calendar-legend span { display: inline-flex; align-items: center; gap: 5px; }
 
 .filter-row { gap: 10px; margin-bottom: 22px; }
 .filter { background: #fffdf7; border: 1.5px solid var(--line); }
@@ -370,6 +398,7 @@ h2 { color: var(--ink); }
   .page-feature-art div { padding-right: 0; }
   .page-feature-art span { font-size: 14px; }
   .calendar-card { padding: 12px 8px; }
+  .status-dot { min-width: 60px; padding-inline: 6px; }
   .money-summary > div { padding: 16px 10px; }
   .money-summary strong { font-size: 17px; }
   .page-wallet .balance-card strong { font-size: 26px; }

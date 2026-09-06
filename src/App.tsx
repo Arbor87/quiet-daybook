@@ -1,207 +1,1919 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Circle, CircleDot, Download, Lightbulb, ListTodo, Plus, Settings as SettingsIcon, Sparkles, Trash2, Wallet, X } from 'lucide-react'
-import { useLocation, useNavigate } from 'react-router-dom'
-import { db, defaultSettings, effectiveTaskStatus, migrateLegacyAISettings, recurrenceMatches, todayISO, uid, type Balance, type Budget, type Expense, type Idea, type RecurrenceKind, type Settings, type Task, type TaskStatus } from './db'
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  CalendarDays,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  CircleDot,
+  Download,
+  Lightbulb,
+  ListTodo,
+  Plus,
+  Settings as SettingsIcon,
+  Sparkles,
+  Trash2,
+  Wallet,
+  X,
+} from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import {
+  db,
+  defaultSettings,
+  effectiveTaskStatus,
+  migrateLegacyAISettings,
+  recurrenceMatches,
+  todayISO,
+  uid,
+  type Balance,
+  type Budget,
+  type Expense,
+  type Idea,
+  type RecurrenceKind,
+  type Settings,
+  type Task,
+  type TaskStatus,
+} from "./db";
 
-type Tab = 'today' | 'calendar' | 'ideas' | 'wallet'
-const pad = (n: number) => String(n).padStart(2, '0')
-const fmtDate = (iso: string) => new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date(`${iso}T12:00:00`))
+type Tab = "today" | "calendar" | "ideas" | "wallet";
+const pad = (n: number) => String(n).padStart(2, "0");
+const fmtDate = (iso: string) =>
+  new Intl.DateTimeFormat("zh-CN", {
+    month: "long",
+    day: "numeric",
+    weekday: "long",
+  }).format(new Date(`${iso}T12:00:00`));
 const fmtShortDate = (iso: string) => {
-  const date = new Date(`${iso}T12:00:00`)
-  if (Number.isNaN(date.getTime())) return ''
-  return `${date.getMonth() + 1}/${date.getDate()}`
-}
-const monthKey = (iso: string) => iso.slice(0, 7)
-const walletStartDateKey = (month: string) => `quiet-daybook-wallet-start-${month}`
+  const date = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+};
+const monthKey = (iso: string) => iso.slice(0, 7);
+const walletStartDateKey = (month: string) =>
+  `quiet-daybook-wallet-start-${month}`;
 const parseSimpleExpense = (text: string): Partial<Expense> => {
-  const amount = Number((text.match(/(?:¥|￥|人民币|rmb)?\s*(\d+(?:\.\d{1,2})?)/i)?.[1] ?? '').trim())
-  const category = /午饭|晚饭|早餐|咖啡|吃|餐/.test(text) ? '餐饮' : /地铁|公交|打车|滴滴/.test(text) ? '交通' : /书|课程|学习/.test(text) ? '学习' : '其他'
-  return { amountCny: amount || undefined, category, note: text, source: 'manual' }
-}
-const isISODate = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T12:00:00`).getTime())
-export function validateBackup(value: unknown): value is { schemaVersion: 1; tasks: Task[]; ideas: Idea[]; expenses: Expense[]; budgets: Budget[]; balances?: Balance[] } {
-  if (!value || typeof value !== 'object') return false
-  const p = value as Record<string, unknown>
-  if (p.schemaVersion !== 1 || !Array.isArray(p.tasks) || !Array.isArray(p.ideas) || !Array.isArray(p.expenses) || !Array.isArray(p.budgets)) return false
-  const validTask = (t: any) => t && typeof t.id === 'string' && typeof t.title === 'string' && isISODate(t.date) && ['todo', 'doing', 'done'].includes(t.status)
-  const validIdea = (i: any) => i && typeof i.id === 'string' && typeof i.content === 'string' && isISODate(i.date) && Array.isArray(i.tags)
-  const validExpense = (e: any) => e && typeof e.id === 'string' && isISODate(e.date) && typeof e.amountCny === 'number' && Number.isFinite(e.amountCny) && e.amountCny > 0 && typeof e.category === 'string' && (e.balanceId === undefined || typeof e.balanceId === 'string')
-  const validBudget = (b: any) => b && typeof b.id === 'string' && /^\d{4}-\d{2}$/.test(b.month) && typeof b.category === 'string' && typeof b.limitCny === 'number' && b.limitCny > 0 && (b.startDate === undefined || isISODate(b.startDate))
-  const validBalance = (b: any) => b && typeof b.id === 'string' && typeof b.name === 'string' && b.name.trim() && typeof b.location === 'string' && b.location.trim() && typeof b.amountCny === 'number' && Number.isFinite(b.amountCny) && b.amountCny >= 0
-  return p.tasks.every(validTask) && p.ideas.every(validIdea) && p.expenses.every(validExpense) && p.budgets.every(validBudget) && (p.balances === undefined || (Array.isArray(p.balances) && p.balances.every(validBalance)))
+  const amount = Number(
+    (
+      text.match(/(?:¥|￥|人民币|rmb)?\s*(\d+(?:\.\d{1,2})?)/i)?.[1] ?? ""
+    ).trim(),
+  );
+  const category = /午饭|晚饭|早餐|咖啡|吃|餐/.test(text)
+    ? "餐饮"
+    : /地铁|公交|打车|滴滴/.test(text)
+      ? "交通"
+      : /书|课程|学习/.test(text)
+        ? "学习"
+        : "其他";
+  return {
+    amountCny: amount || undefined,
+    category,
+    note: text,
+    source: "manual",
+  };
+};
+const isISODate = (value: unknown) =>
+  typeof value === "string" &&
+  /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+  !Number.isNaN(new Date(`${value}T12:00:00`).getTime());
+export function validateBackup(value: unknown): value is {
+  schemaVersion: 1;
+  tasks: Task[];
+  ideas: Idea[];
+  expenses: Expense[];
+  budgets: Budget[];
+  balances?: Balance[];
+} {
+  if (!value || typeof value !== "object") return false;
+  const p = value as Record<string, unknown>;
+  if (
+    p.schemaVersion !== 1 ||
+    !Array.isArray(p.tasks) ||
+    !Array.isArray(p.ideas) ||
+    !Array.isArray(p.expenses) ||
+    !Array.isArray(p.budgets)
+  )
+    return false;
+  const validTask = (t: any) =>
+    t &&
+    typeof t.id === "string" &&
+    typeof t.title === "string" &&
+    isISODate(t.date) &&
+    ["todo", "doing", "done"].includes(t.status);
+  const validIdea = (i: any) =>
+    i &&
+    typeof i.id === "string" &&
+    typeof i.content === "string" &&
+    isISODate(i.date) &&
+    Array.isArray(i.tags);
+  const validExpense = (e: any) =>
+    e &&
+    typeof e.id === "string" &&
+    isISODate(e.date) &&
+    typeof e.amountCny === "number" &&
+    Number.isFinite(e.amountCny) &&
+    e.amountCny > 0 &&
+    typeof e.category === "string" &&
+    (e.balanceId === undefined || typeof e.balanceId === "string");
+  const validBudget = (b: any) =>
+    b &&
+    typeof b.id === "string" &&
+    /^\d{4}-\d{2}$/.test(b.month) &&
+    typeof b.category === "string" &&
+    typeof b.limitCny === "number" &&
+    b.limitCny > 0 &&
+    (b.startDate === undefined || isISODate(b.startDate));
+  const validBalance = (b: any) =>
+    b &&
+    typeof b.id === "string" &&
+    typeof b.name === "string" &&
+    b.name.trim() &&
+    typeof b.location === "string" &&
+    b.location.trim() &&
+    typeof b.amountCny === "number" &&
+    Number.isFinite(b.amountCny) &&
+    b.amountCny >= 0;
+  return (
+    p.tasks.every(validTask) &&
+    p.ideas.every(validIdea) &&
+    p.expenses.every(validExpense) &&
+    p.budgets.every(validBudget) &&
+    (p.balances === undefined ||
+      (Array.isArray(p.balances) && p.balances.every(validBalance)))
+  );
 }
 
 export function groupExpensesByDate(expenses: Expense[]) {
-  const groups = new Map<string, Expense[]>()
-  for (const expense of [...expenses].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))) {
-    groups.set(expense.date, [...(groups.get(expense.date) ?? []), expense])
+  const groups = new Map<string, Expense[]>();
+  for (const expense of [...expenses].sort(
+    (a, b) =>
+      b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt),
+  )) {
+    groups.set(expense.date, [...(groups.get(expense.date) ?? []), expense]);
   }
-  return [...groups.entries()].map(([date, items]) => ({ date, items, total: items.reduce((sum, item) => sum + item.amountCny, 0) }))
+  return [...groups.entries()].map(([date, items]) => ({
+    date,
+    items,
+    total: items.reduce((sum, item) => sum + item.amountCny, 0),
+  }));
 }
 
 export default function App() {
-  const location = useLocation(); const navigate = useNavigate()
-  const [tab, setTab] = useState<Tab>('today'); const [selectedDate, setSelectedDate] = useState(todayISO())
-  const [tasks, setTasks] = useState<Task[]>([]); const [ideas, setIdeas] = useState<Idea[]>([]); const [expenses, setExpenses] = useState<Expense[]>([]); const [budgets, setBudgets] = useState<Budget[]>([]); const [balances, setBalances] = useState<Balance[]>([]); const [settings, setSettings] = useState<Settings>(defaultSettings)
-  const reloadVersion = useRef(0)
-  const [showTask, setShowTask] = useState(false); const [showIdea, setShowIdea] = useState(false); const [showExpense, setShowExpense] = useState(false); const [showSettings, setShowSettings] = useState(false); const [showBudget, setShowBudget] = useState(false); const [showBalances, setShowBalances] = useState(false); const [editingTask, setEditingTask] = useState<Task | null>(null); const [editingIdea, setEditingIdea] = useState<Idea | null>(null)
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [tab, setTab] = useState<Tab>("today");
+  const [selectedDate, setSelectedDate] = useState(todayISO());
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [balances, setBalances] = useState<Balance[]>([]);
+  const [settings, setSettings] = useState<Settings>(defaultSettings);
+  const reloadVersion = useRef(0);
+  const [showTask, setShowTask] = useState(false);
+  const [showIdea, setShowIdea] = useState(false);
+  const [showExpense, setShowExpense] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showBudget, setShowBudget] = useState(false);
+  const [showBalances, setShowBalances] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editingIdea, setEditingIdea] = useState<Idea | null>(null);
   const reload = async () => {
-    const version = ++reloadVersion.current
-    const [nextTasks, nextIdeas, nextExpenses, nextBudgets, nextBalances, nextSettings] = await Promise.all([
+    const version = ++reloadVersion.current;
+    const [
+      nextTasks,
+      nextIdeas,
+      nextExpenses,
+      nextBudgets,
+      nextBalances,
+      nextSettings,
+    ] = await Promise.all([
       db.tasks.toArray(),
-      db.ideas.orderBy('date').reverse().toArray(),
-      db.expenses.orderBy('date').reverse().toArray(),
+      db.ideas.orderBy("date").reverse().toArray(),
+      db.expenses.orderBy("date").reverse().toArray(),
       db.budgets.toArray(),
       db.balances.toArray(),
-      db.settings.get('main'),
-    ])
+      db.settings.get("main"),
+    ]);
     // A slower refresh started earlier must never overwrite a newer snapshot.
-    if (version !== reloadVersion.current) return
-    setTasks(nextTasks); setIdeas(nextIdeas); setExpenses(nextExpenses); setBudgets(nextBudgets); setBalances(nextBalances); setSettings(nextSettings ?? defaultSettings)
-  }
-  useEffect(() => { void (async () => { const current = await db.settings.get('main'); const next = current ? migrateLegacyAISettings(current) : defaultSettings; await db.settings.put(next); await reload() })() }, [])
-  useEffect(() => { const parts = location.pathname.split('/').filter(Boolean); if (parts[0] === 'day' && /^\d{4}-\d{2}-\d{2}$/.test(parts[1] ?? '')) { setSelectedDate(parts[1]); setTab('today') } else if (['calendar', 'ideas', 'wallet'].includes(parts[0])) setTab(parts[0] as Tab); else if (location.pathname === '/') navigate(`/day/${todayISO()}`, { replace: true }) }, [location.pathname, navigate])
-  const dayTasks = useMemo(() => tasks.filter((t) => t.date === selectedDate || recurrenceMatches(t.recurrence, t.date, selectedDate)).map((t) => ({ ...t, status: effectiveTaskStatus(t, selectedDate) })), [tasks, selectedDate])
-  const dayIdeas = useMemo(() => ideas.filter((i) => i.date === selectedDate), [ideas, selectedDate])
-  const nav = (next: Tab) => { if (next === 'today') navigate(`/day/${todayISO()}`); else navigate(`/${next}`) }
-  const toggleTask = async (task: Task) => { const source = await db.tasks.get(task.id); if (!source) return; const current = effectiveTaskStatus(source, selectedDate); const status: TaskStatus = current === 'todo' ? 'doing' : current === 'doing' ? 'done' : 'todo'; const now = new Date().toISOString(); if (source.recurrence) { const occurrenceStatuses = { ...(source.occurrenceStatuses ?? {}), [selectedDate]: status }; const occurrenceCompletedAt = { ...(source.occurrenceCompletedAt ?? {}) }; if (status === 'done') occurrenceCompletedAt[selectedDate] = now; else delete occurrenceCompletedAt[selectedDate]; await db.tasks.update(task.id, { occurrenceStatuses, occurrenceCompletedAt, updatedAt: now }) } else await db.tasks.update(task.id, { status, completedAt: status === 'done' ? now : undefined, updatedAt: now }); reload() }
-  const deleteTask = async (id: string) => { if (!window.confirm('确定删除这个任务吗？')) return; await db.tasks.delete(id); reload() }
+    if (version !== reloadVersion.current) return;
+    setTasks(nextTasks);
+    setIdeas(nextIdeas);
+    setExpenses(nextExpenses);
+    setBudgets(nextBudgets);
+    setBalances(nextBalances);
+    setSettings(nextSettings ?? defaultSettings);
+  };
+  useEffect(() => {
+    void (async () => {
+      const current = await db.settings.get("main");
+      const next = current ? migrateLegacyAISettings(current) : defaultSettings;
+      await db.settings.put(next);
+      await reload();
+    })();
+  }, []);
+  useEffect(() => {
+    const parts = location.pathname.split("/").filter(Boolean);
+    if (parts[0] === "day" && /^\d{4}-\d{2}-\d{2}$/.test(parts[1] ?? "")) {
+      setSelectedDate(parts[1]);
+      setTab("today");
+    } else if (["calendar", "ideas", "wallet"].includes(parts[0]))
+      setTab(parts[0] as Tab);
+    else if (location.pathname === "/")
+      navigate(`/day/${todayISO()}`, { replace: true });
+  }, [location.pathname, navigate]);
+  const dayTasks = useMemo(
+    () =>
+      tasks
+        .filter(
+          (t) =>
+            t.date === selectedDate ||
+            recurrenceMatches(t.recurrence, t.date, selectedDate),
+        )
+        .map((t) => ({ ...t, status: effectiveTaskStatus(t, selectedDate) })),
+    [tasks, selectedDate],
+  );
+  const dayIdeas = useMemo(
+    () => ideas.filter((i) => i.date === selectedDate),
+    [ideas, selectedDate],
+  );
+  const nav = (next: Tab) => {
+    if (next === "today") navigate(`/day/${todayISO()}`);
+    else navigate(`/${next}`);
+  };
+  const toggleTask = async (task: Task) => {
+    const source = await db.tasks.get(task.id);
+    if (!source) return;
+    const current = effectiveTaskStatus(source, selectedDate);
+    const status: TaskStatus =
+      current === "todo" ? "doing" : current === "doing" ? "done" : "todo";
+    const now = new Date().toISOString();
+    if (source.recurrence) {
+      const occurrenceStatuses = {
+        ...(source.occurrenceStatuses ?? {}),
+        [selectedDate]: status,
+      };
+      const occurrenceCompletedAt = { ...(source.occurrenceCompletedAt ?? {}) };
+      if (status === "done") occurrenceCompletedAt[selectedDate] = now;
+      else delete occurrenceCompletedAt[selectedDate];
+      await db.tasks.update(task.id, {
+        occurrenceStatuses,
+        occurrenceCompletedAt,
+        updatedAt: now,
+      });
+    } else
+      await db.tasks.update(task.id, {
+        status,
+        completedAt: status === "done" ? now : undefined,
+        updatedAt: now,
+      });
+    reload();
+  };
+  const deleteTask = async (id: string) => {
+    if (!window.confirm("确定删除这个任务吗？")) return;
+    await db.tasks.delete(id);
+    reload();
+  };
   const deleteExpense = async (expense: Expense) => {
-    if (!window.confirm(`确定删除「${expense.note || expense.category}」这笔 ¥${expense.amountCny.toFixed(2)} 的开销吗？`)) return
-    await db.transaction('rw', db.expenses, db.balances, async () => {
-      const current = await db.expenses.get(expense.id)
-      if (!current) return
+    if (
+      !window.confirm(
+        `确定删除「${expense.note || expense.category}」这笔 ¥${expense.amountCny.toFixed(2)} 的开销吗？`,
+      )
+    )
+      return;
+    await db.transaction("rw", db.expenses, db.balances, async () => {
+      const current = await db.expenses.get(expense.id);
+      if (!current) return;
       if (current.balanceId) {
-        const balance = await db.balances.get(current.balanceId)
-        if (balance) await db.balances.update(balance.id, { amountCny: balance.amountCny + current.amountCny, updatedAt: new Date().toISOString() })
+        const balance = await db.balances.get(current.balanceId);
+        if (balance)
+          await db.balances.update(balance.id, {
+            amountCny: balance.amountCny + current.amountCny,
+            updatedAt: new Date().toISOString(),
+          });
       }
-      await db.expenses.delete(current.id)
-    })
-    reload()
-  }
-  const saveWalletStartDate = async (date: string) => { const month = monthKey(selectedDate); localStorage.setItem(walletStartDateKey(month), date); const totalBudget = await db.budgets.get(`${month}-*`); if (totalBudget) await db.budgets.update(totalBudget.id, { startDate: date }); reload() }
-  const balanceTotal = balances.reduce((sum, balance) => sum + balance.amountCny, 0)
-  const totals = expenses.filter((e) => monthKey(e.date) === monthKey(selectedDate)).reduce((sum, e) => sum + e.amountCny, 0)
-  const selectedMonthBudgets = budgets.filter((b) => b.month === monthKey(selectedDate)); const totalBudget = selectedMonthBudgets.find((b) => b.category === '*')?.limitCny; const monthBudget = totalBudget ?? selectedMonthBudgets.filter((b) => b.category !== '*').reduce((sum, b) => sum + b.limitCny, 0)
+      await db.expenses.delete(current.id);
+    });
+    reload();
+  };
+  const saveWalletStartDate = async (date: string) => {
+    const month = monthKey(selectedDate);
+    localStorage.setItem(walletStartDateKey(month), date);
+    const totalBudget = await db.budgets.get(`${month}-*`);
+    if (totalBudget)
+      await db.budgets.update(totalBudget.id, { startDate: date });
+    reload();
+  };
+  const balanceTotal = balances.reduce(
+    (sum, balance) => sum + balance.amountCny,
+    0,
+  );
+  const totals = expenses
+    .filter((e) => monthKey(e.date) === monthKey(selectedDate))
+    .reduce((sum, e) => sum + e.amountCny, 0);
+  const selectedMonthBudgets = budgets.filter(
+    (b) => b.month === monthKey(selectedDate),
+  );
+  const totalBudget = selectedMonthBudgets.find(
+    (b) => b.category === "*",
+  )?.limitCny;
+  const monthBudget =
+    totalBudget ??
+    selectedMonthBudgets
+      .filter((b) => b.category !== "*")
+      .reduce((sum, b) => sum + b.limitCny, 0);
 
-  return <div className="app-shell">
-    <header className="topbar"><div className="brand-mark">静日</div><div className="brand-sub">MY DAY OS</div><div className="top-actions"><button className="icon-btn" onClick={() => setShowSettings(true)} title="设置"><SettingsIcon size={18} /></button></div></header>
-    <main className="content">
-      {tab === 'today' && <TodayView date={selectedDate} tasks={dayTasks} ideas={dayIdeas} onTask={toggleTask} onDelete={deleteTask} onEdit={(task: Task) => { setEditingTask(task); setShowTask(true) }} onAddTask={() => { setEditingTask(null); setShowTask(true) }} onAddIdea={() => { setEditingIdea(null); setShowIdea(true) }} onEditIdea={(idea: Idea) => { setEditingIdea(idea); setShowIdea(true) }} onAddExpense={() => setShowExpense(true)} />}
-      {tab === 'calendar' && <CalendarView date={selectedDate} tasks={tasks} onDate={(d: string) => navigate(`/day/${d}`)} onPrev={() => setSelectedDate(shiftMonth(selectedDate, -1))} onNext={() => setSelectedDate(shiftMonth(selectedDate, 1))} />}
-      {tab === 'ideas' && <IdeasView ideas={ideas} onAdd={() => { setEditingIdea(null); setShowIdea(true) }} onEdit={(idea: Idea) => { setEditingIdea(idea); setShowIdea(true) }} />}
-      {tab === 'wallet' && <WalletView expenses={expenses} budgets={budgets} balances={balances} month={monthKey(selectedDate)} total={totals} budget={monthBudget} balanceTotal={balanceTotal} onManageBalances={() => setShowBalances(true)} onAdd={() => setShowExpense(true)} onBudget={() => setShowBudget(true)} onSaveStartDate={saveWalletStartDate} onDelete={deleteExpense} />}
-    </main>
-    <nav className="bottom-nav">{([['today', ListTodo, '今天'], ['calendar', CalendarDays, '月历'], ['ideas', Lightbulb, '想法'], ['wallet', Wallet, '钱包']] as const).map(([id, Icon, label]) => <button key={id} className={tab === id ? 'nav-item active' : 'nav-item'} onClick={() => nav(id)}><Icon size={19} /><span>{label}</span></button>)}</nav>
-    {showTask && <TaskModal initial={editingTask} date={selectedDate} onClose={() => setShowTask(false)} onSaved={() => { setShowTask(false); reload() }} />}
-    {showIdea && <IdeaModal initial={editingIdea} date={selectedDate} onClose={() => setShowIdea(false)} onSaved={() => { setShowIdea(false); reload() }} />}
-    {showExpense && <ExpenseModal settings={settings} balances={balances} date={selectedDate} onClose={() => setShowExpense(false)} onSaved={async () => { await reload(); setShowExpense(false) }} />}
-    {showSettings && <SettingsModal settings={settings} onClose={() => setShowSettings(false)} onSaved={(s: Settings) => { setSettings(s); setShowSettings(false) }} />}
-    {showBudget && <BudgetModal month={monthKey(selectedDate)} budgets={budgets} categories={settings.categories} onClose={() => setShowBudget(false)} onSaved={() => { setShowBudget(false); reload() }} />}
-    {showBalances && <BalanceModal balances={balances} onClose={() => setShowBalances(false)} onSaved={() => { setShowBalances(false); reload() }} />}
-  </div>
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand-mark">静日</div>
+        <div className="brand-sub">MY DAY OS</div>
+        <div className="top-actions">
+          <button
+            className="icon-btn"
+            onClick={() => setShowSettings(true)}
+            title="设置"
+          >
+            <SettingsIcon size={18} />
+          </button>
+        </div>
+      </header>
+      <main className="content">
+        {tab === "today" && (
+          <TodayView
+            date={selectedDate}
+            tasks={dayTasks}
+            ideas={dayIdeas}
+            onTask={toggleTask}
+            onDelete={deleteTask}
+            onEdit={(task: Task) => {
+              setEditingTask(task);
+              setShowTask(true);
+            }}
+            onAddTask={() => {
+              setEditingTask(null);
+              setShowTask(true);
+            }}
+            onAddIdea={() => {
+              setEditingIdea(null);
+              setShowIdea(true);
+            }}
+            onEditIdea={(idea: Idea) => {
+              setEditingIdea(idea);
+              setShowIdea(true);
+            }}
+            onAddExpense={() => setShowExpense(true)}
+          />
+        )}
+        {tab === "calendar" && (
+          <CalendarView
+            date={selectedDate}
+            tasks={tasks}
+            onDate={(d: string) => navigate(`/day/${d}`)}
+            onPrev={() => setSelectedDate(shiftMonth(selectedDate, -1))}
+            onNext={() => setSelectedDate(shiftMonth(selectedDate, 1))}
+          />
+        )}
+        {tab === "ideas" && (
+          <IdeasView
+            ideas={ideas}
+            onAdd={() => {
+              setEditingIdea(null);
+              setShowIdea(true);
+            }}
+            onEdit={(idea: Idea) => {
+              setEditingIdea(idea);
+              setShowIdea(true);
+            }}
+          />
+        )}
+        {tab === "wallet" && (
+          <WalletView
+            expenses={expenses}
+            budgets={budgets}
+            balances={balances}
+            month={monthKey(selectedDate)}
+            total={totals}
+            budget={monthBudget}
+            balanceTotal={balanceTotal}
+            onManageBalances={() => setShowBalances(true)}
+            onAdd={() => setShowExpense(true)}
+            onBudget={() => setShowBudget(true)}
+            onSaveStartDate={saveWalletStartDate}
+            onDelete={deleteExpense}
+          />
+        )}
+      </main>
+      <nav className="bottom-nav">
+        {(
+          [
+            ["today", ListTodo, "今天"],
+            ["calendar", CalendarDays, "月历"],
+            ["ideas", Lightbulb, "想法"],
+            ["wallet", Wallet, "钱包"],
+          ] as const
+        ).map(([id, Icon, label]) => (
+          <button
+            key={id}
+            className={tab === id ? "nav-item active" : "nav-item"}
+            onClick={() => nav(id)}
+          >
+            <Icon size={19} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
+      {showTask && (
+        <TaskModal
+          initial={editingTask}
+          date={selectedDate}
+          onClose={() => setShowTask(false)}
+          onSaved={() => {
+            setShowTask(false);
+            reload();
+          }}
+        />
+      )}
+      {showIdea && (
+        <IdeaModal
+          initial={editingIdea}
+          date={selectedDate}
+          onClose={() => setShowIdea(false)}
+          onSaved={() => {
+            setShowIdea(false);
+            reload();
+          }}
+        />
+      )}
+      {showExpense && (
+        <ExpenseModal
+          settings={settings}
+          balances={balances}
+          date={selectedDate}
+          onClose={() => setShowExpense(false)}
+          onSaved={async () => {
+            await reload();
+            setShowExpense(false);
+          }}
+        />
+      )}
+      {showSettings && (
+        <SettingsModal
+          settings={settings}
+          onClose={() => setShowSettings(false)}
+          onSaved={(s: Settings) => {
+            setSettings(s);
+            setShowSettings(false);
+          }}
+        />
+      )}
+      {showBudget && (
+        <BudgetModal
+          month={monthKey(selectedDate)}
+          budgets={budgets}
+          categories={settings.categories}
+          onClose={() => setShowBudget(false)}
+          onSaved={() => {
+            setShowBudget(false);
+            reload();
+          }}
+        />
+      )}
+      {showBalances && (
+        <BalanceModal
+          balances={balances}
+          onClose={() => setShowBalances(false)}
+          onSaved={() => {
+            setShowBalances(false);
+            reload();
+          }}
+        />
+      )}
+    </div>
+  );
 }
 
-function CrayonMascot() { return <svg className="crayon-mascot" viewBox="0 0 230 190" role="img" aria-label="原创蜡笔太阳吉祥物"><g stroke="#15253a" strokeWidth="8" strokeLinecap="round"><path d="M58 24 48 8M26 55 8 46M25 94 7 103M57 126 47 145M99 129l10 18M129 98l18 8M128 57l18-10M99 27l9-18" /></g><circle cx="78" cy="78" r="56" fill="#ffe052" stroke="#15253a" strokeWidth="8"/><path d="M51 60q10-10 20 0M87 60q10-10 20 0" fill="none" stroke="#15253a" strokeWidth="7" strokeLinecap="round"/><circle cx="63" cy="76" r="5" fill="#15253a"/><circle cx="96" cy="76" r="5" fill="#15253a"/><path d="M57 96q23 22 44-2" fill="none" stroke="#15253a" strokeWidth="7" strokeLinecap="round"/><path d="M126 144 188 59l25 18-61 87-28 9z" fill="#ff8068" stroke="#15253a" strokeWidth="8" strokeLinejoin="round"/><path d="m188 59 11-16 25 18-11 16" fill="#b9f2d0" stroke="#15253a" strokeWidth="8" strokeLinejoin="round"/><path d="m126 144-7 35 33-15" fill="#ffe8c4" stroke="#15253a" strokeWidth="8" strokeLinejoin="round"/><path d="m119 179 13-6-8-9z" fill="#15253a"/><path d="M159 125q22 4 34 19" fill="none" stroke="#fff" strokeWidth="5" strokeLinecap="round"/></svg> }
-
-function TodayView({ date, tasks, ideas, onTask, onDelete, onEdit, onAddTask, onAddIdea, onEditIdea, onAddExpense }: any) { return <section className="page page-today"><div className="date-hero"><div className="hero-copy"><div className="date-tab">{new Date(`${date}T12:00:00`).getDate()}</div><div><p className="eyebrow">{fmtShortDate(date)}</p><h1>{fmtDate(date)}</h1><p className="muted">今天想完成什么，就从这里开始。</p></div></div><div className="mascot-stage"><img src="./today-shinchan.jpg" alt="蜡笔小新打招呼" /><span>今天也要有点好玩的！</span></div></div><div className="quick-actions"><button className="primary action-task" onClick={onAddTask}><Plus size={17} /> 新任务</button><button className="action-idea" onClick={onAddIdea}><Lightbulb size={16} /> 写想法</button><button className="action-expense" onClick={onAddExpense}><Wallet size={16} /> 记一笔</button></div><div className="section-grid"><div className="panel"><div className="panel-head"><div><p className="eyebrow">TODAY'S LIST</p><h2>今天的任务</h2></div><span className="count">{tasks.length}</span></div>{tasks.length === 0 ? <Empty text="今天还没有任务" action="添加第一件事" onClick={onAddTask} /> : <div className="task-list">{tasks.map((t: Task) => <div className="task-row" key={t.id}><button className={`status-dot ${t.status}`} onClick={() => onTask(t)} title="切换状态">{t.status === 'done' ? <Check size={13} /> : t.status === 'doing' ? <CircleDot size={13} /> : <Circle size={13} />}</button><button className={t.status === 'done' ? 'task-copy task-copy-btn done' : 'task-copy task-copy-btn'} onClick={() => onEdit(t)}><span>{t.title}</span>{t.note && <small>{t.note}</small>}</button><button className="ghost-delete" onClick={() => onDelete(t.id)} title="删除任务"><X size={15} /></button></div>)}</div>}</div><div className="panel idea-panel"><div className="panel-head"><div><p className="eyebrow">IDEA BOX</p><h2>脑袋里的火花</h2></div><button className="round-btn" onClick={onAddIdea}><Plus size={17} /></button></div>{ideas.length === 0 ? <Empty text="有灵感就丢进来" action="写一条想法" onClick={onAddIdea} /> : ideas.map((i: Idea) => <button className="idea-snippet idea-button" key={i.id} onClick={() => onEditIdea(i)}><p>{i.content}</p><div>{i.tags.map((tag) => <span className="tag" key={tag}>#{tag}</span>)}</div></button>)}</div></div></section> }
-
-function CalendarView({ date, tasks, onDate, onPrev, onNext }: any) { const d = new Date(`${date}T12:00:00`); const year = d.getFullYear(); const month = d.getMonth(); const first = new Date(year, month, 1); const offset = (first.getDay() + 6) % 7; const days = new Date(year, month + 1, 0).getDate(); const cells = Array.from({ length: Math.ceil((offset + days) / 7) * 7 }, (_, i) => { const n = i - offset + 1; return n > 0 && n <= days ? `${year}-${pad(month + 1)}-${pad(n)}` : null }); return <section className="page page-calendar"><div className="page-title"><div><p className="eyebrow">CALENDAR</p><h1>{year} 年 {month + 1} 月</h1></div><div className="month-nav"><button onClick={onPrev}><ChevronLeft size={18} /></button><button onClick={() => onDate(todayISO())}>今天</button><button onClick={onNext}><ChevronRight size={18} /></button></div></div><div className="page-feature-art calendar-feature-art"><img src="./calendar-shinchan.jpg" alt="蜡笔小新和生日蛋糕" /><div><p className="eyebrow">A LITTLE CELEBRATION</p><span>把值得记住的日子留在这里。</span></div></div><div className="calendar-card"><div className="week-head">{['一','二','三','四','五','六','日'].map((w) => <span key={w}>{w}</span>)}</div><div className="calendar-grid">{cells.map((iso, i) => { const count = iso ? tasks.filter((t: Task) => t.date === iso || recurrenceMatches(t.recurrence, t.date, iso)).length : 0; return <button className={iso === date ? 'day-cell selected' : iso === todayISO() ? 'day-cell today' : 'day-cell'} key={i} disabled={!iso} onClick={() => iso && onDate(iso)}>{iso && <><b>{Number(iso.slice(-2))}</b>{count > 0 && <span className="day-mark">{count}</span>}</>}</button> })}</div></div><p className="calendar-hint">点击日期查看当天任务与想法</p></section> }
-
-function IdeasView({ ideas, onAdd, onEdit }: { ideas: Idea[]; onAdd: () => void; onEdit: (idea: Idea) => void }) { const [filter, setFilter] = useState('全部'); const tags = ['全部', ...Array.from(new Set(ideas.flatMap((i) => i.tags)))]; const list = filter === '全部' ? ideas : ideas.filter((i) => i.tags.includes(filter)); return <section className="page page-ideas"><div className="page-title"><div><p className="eyebrow">FIELD NOTES</p><h1>想法集</h1><p className="muted">让零散的念头有地方长大。</p></div><button className="primary" onClick={onAdd}><Plus size={17} /> 新想法</button></div><div className="page-feature-art ideas-feature-art"><img src="./ideas-shinchan.jpg" alt="蜡笔小新思考中" /><div><p className="eyebrow">THOUGHTS IN MOTION</p><span>让零散的念头有地方长大。</span></div></div><div className="filter-row">{tags.map((t) => <button className={filter === t ? 'filter active' : 'filter'} key={t} onClick={() => setFilter(t)}>{t}</button>)}</div>{list.length === 0 ? <Empty text="还没有想法记录" action="写下第一条" onClick={onAdd} /> : <div className="idea-feed">{list.map((i) => <button className="idea-card idea-button" key={i.id} onClick={() => onEdit(i)}><div className="idea-date"><b>{new Date(`${i.date}T12:00:00`).getDate()}</b><span>{new Date(`${i.date}T12:00:00`).toLocaleDateString('zh-CN', { month: 'short', weekday: 'short' })}</span></div><div><p>{i.content}</p><div>{i.tags.map((tag) => <span className="tag" key={tag}>#{tag}</span>)}</div></div></button>)}</div>}</section> }
-
-function WalletView({ expenses, budgets, balances, month, total: _total, budget, balanceTotal, onManageBalances, onAdd, onBudget, onSaveStartDate, onDelete }: { expenses: Expense[]; budgets: Budget[]; balances: Balance[]; month: string; total: number; budget: number; balanceTotal: number; onManageBalances: () => void; onAdd: () => void; onBudget: () => void; onSaveStartDate: (date: string) => void; onDelete: (expense: Expense) => void }) {
-  const savedPeriod = budgets.find((item) => item.month === month && item.category === '*')
-  const defaultStartDate = savedPeriod?.startDate || localStorage.getItem(walletStartDateKey(month)) || `${month}-01`
-  const [draftStartDate, setDraftStartDate] = useState(defaultStartDate)
-  const [startDate, setStartDate] = useState(defaultStartDate)
-  useEffect(() => { setDraftStartDate(defaultStartDate); setStartDate(defaultStartDate) }, [defaultStartDate])
-  const monthlyExpenses = expenses.filter((expense) => monthKey(expense.date) === month && expense.date >= startDate)
-  const periodTotal = monthlyExpenses.reduce((sum, expense) => sum + expense.amountCny, 0)
-  const dateGroups = groupExpensesByDate(monthlyExpenses)
-  const byCategory = monthlyExpenses.reduce<Record<string, number>>((result, expense) => ({ ...result, [expense.category]: (result[expense.category] ?? 0) + expense.amountCny }), {})
-  const categoryBudget = (category: string) => budgets.find((item) => item.month === month && item.category === category)?.limitCny
-  const balanceNames = new Map(balances.map((balance) => [balance.id, `${balance.name} · ${balance.location}`]))
-  return <section className="page page-wallet">
-    <div className="page-title"><div><p className="eyebrow">MONEY, QUIETLY</p><h1>钱包</h1><p className="muted">{month} 的每一笔，都值得被看见。</p></div><button className="primary" onClick={onAdd}><Plus size={17} /> 记一笔</button></div>
-    <div className="page-feature-art wallet-feature-art"><img src="./wallet-shinchan.jpg" alt="蜡笔小新靠在门边" /><div><p className="eyebrow">A QUIET PAUSE</p><span>看一眼余额，再决定下一笔。</span></div></div>
-    <button className="balance-card" onClick={onManageBalances}><span>总余额</span><strong>¥{balanceTotal.toFixed(2)}</strong><small>点击管理资金和存放位置</small></button>
-    <div className="money-summary"><div><span>本周期已花</span><strong>¥{periodTotal.toFixed(2)}</strong></div><div><span>预算</span><strong>{budget ? `¥${budget.toFixed(2)}` : '未设置'}</strong></div><div className={budget && periodTotal > budget ? 'over' : ''}><span>剩余</span><strong>{budget ? `¥${(budget - periodTotal).toFixed(2)}` : '—'}</strong></div></div>
-    <div className="wallet-period panel"><div><p className="eyebrow">WALLET PERIOD</p><h2>开始日期</h2><p className="form-hint">确认后按此日期重新计算剩余金额</p></div><div className="wallet-period-control"><input type="date" min={`${month}-01`} max={`${month}-${new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()}`} value={draftStartDate} onChange={(event) => setDraftStartDate(event.target.value)} aria-label="开始日期" /><span>{fmtShortDate(draftStartDate) || '—'}</span><button className="primary" onClick={() => { setStartDate(draftStartDate); onSaveStartDate(draftStartDate) }} disabled={!isISODate(draftStartDate) || monthKey(draftStartDate) !== month}>确定</button></div></div>
-    <div className="quick-actions"><button onClick={onBudget}><SettingsIcon size={16} /> 设置本月预算</button></div>
-    <div className="panel breakdown-panel"><div className="panel-head"><div><p className="eyebrow">BREAKDOWN</p><h2>分类统计</h2></div></div>{Object.keys(byCategory).length === 0 ? <Empty text="还没有开销记录" action="记下第一笔" onClick={onAdd} /> : <div className="breakdown-grid">{Object.entries(byCategory).map(([category, amount]) => { const limit = categoryBudget(category); return <div className="breakdown-row" key={category}><span>{category}{limit && <small> / ¥{limit}</small>}</span><div className="bar"><i className={limit && amount > limit ? 'over-bar' : ''} style={{ width: `${Math.min(100, limit ? (amount / limit) * 100 : (amount / Math.max(periodTotal, 1)) * 100)}%` }} /></div><b>¥{amount.toFixed(2)}</b></div> })}</div>}</div>
-    <div className="ledger-heading"><div><p className="eyebrow">DAILY LEDGER</p><h2>每日流水</h2></div><span>{monthlyExpenses.length} 笔</span></div>
-    {dateGroups.length === 0 ? <div className="panel"><Empty text="这个月还没有开销" action="记下第一笔" onClick={onAdd} /></div> : <div className="expense-groups">{dateGroups.map((group) => { const groupDate = new Date(`${group.date}T12:00:00`); return <section className="expense-day" key={group.date}><header className="expense-day-head"><div className="expense-day-date"><strong>{groupDate.getDate()}</strong><div><b>{groupDate.toLocaleDateString('zh-CN', { month: 'long' })}</b><span>{groupDate.toLocaleDateString('zh-CN', { weekday: 'long' })}</span></div></div><div className="expense-day-total"><span>当日合计</span><b>¥{group.total.toFixed(2)}</b></div></header><div className="expense-day-list">{group.items.map((expense) => <div className="expense-row" key={expense.id}><div className="expense-main"><b>{expense.category}</b><small>{expense.note || expense.merchant || '未添加备注'}{expense.paymentMethod ? ` · ${expense.paymentMethod}` : ''}{expense.balanceId && balanceNames.get(expense.balanceId) ? ` · 来源：${balanceNames.get(expense.balanceId)}` : ''}</small></div><strong>¥{expense.amountCny.toFixed(2)}</strong><button className="expense-delete" onClick={() => onDelete(expense)} aria-label={`删除 ${expense.note || expense.category}`} title="删除这笔开销"><Trash2 size={16} /></button></div>)}</div></section> })}</div>}
-  </section>
+function CrayonMascot() {
+  return (
+    <svg
+      className="crayon-mascot"
+      viewBox="0 0 230 190"
+      role="img"
+      aria-label="原创蜡笔太阳吉祥物"
+    >
+      <g stroke="#15253a" strokeWidth="8" strokeLinecap="round">
+        <path d="M58 24 48 8M26 55 8 46M25 94 7 103M57 126 47 145M99 129l10 18M129 98l18 8M128 57l18-10M99 27l9-18" />
+      </g>
+      <circle
+        cx="78"
+        cy="78"
+        r="56"
+        fill="#ffe052"
+        stroke="#15253a"
+        strokeWidth="8"
+      />
+      <path
+        d="M51 60q10-10 20 0M87 60q10-10 20 0"
+        fill="none"
+        stroke="#15253a"
+        strokeWidth="7"
+        strokeLinecap="round"
+      />
+      <circle cx="63" cy="76" r="5" fill="#15253a" />
+      <circle cx="96" cy="76" r="5" fill="#15253a" />
+      <path
+        d="M57 96q23 22 44-2"
+        fill="none"
+        stroke="#15253a"
+        strokeWidth="7"
+        strokeLinecap="round"
+      />
+      <path
+        d="M126 144 188 59l25 18-61 87-28 9z"
+        fill="#ff8068"
+        stroke="#15253a"
+        strokeWidth="8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="m188 59 11-16 25 18-11 16"
+        fill="#b9f2d0"
+        stroke="#15253a"
+        strokeWidth="8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="m126 144-7 35 33-15"
+        fill="#ffe8c4"
+        stroke="#15253a"
+        strokeWidth="8"
+        strokeLinejoin="round"
+      />
+      <path d="m119 179 13-6-8-9z" fill="#15253a" />
+      <path
+        d="M159 125q22 4 34 19"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
 }
 
-function Empty({ text, action, onClick }: any) { return <div className="empty"><p>{text}</p><button onClick={onClick}>{action} <Plus size={14} /></button></div> }
-function Modal({ title, children, onClose, className = '' }: any) { return <div className="modal-backdrop"><div className={`modal ${className}`.trim()}><div className="modal-head"><h2>{title}</h2><button className="icon-btn" onClick={onClose} aria-label="关闭"><X size={18} /></button></div>{children}</div></div> }
-function TaskModal({ initial, date, onClose, onSaved }: { initial: Task | null; date: string; onClose: () => void; onSaved: () => void }) { const [title, setTitle] = useState(initial?.title ?? ''); const [note, setNote] = useState(initial?.note ?? ''); const [kind, setKind] = useState<RecurrenceKind | ''>(initial?.recurrence?.kind ?? ''); const save = async () => { if (!title.trim()) return; const now = new Date().toISOString(); if (initial) await db.tasks.update(initial.id, { title: title.trim(), note: note.trim(), recurrence: kind ? { kind } : undefined, updatedAt: now }); else await db.tasks.add({ id: uid(), title: title.trim(), note: note.trim(), date, status: 'todo', recurrence: kind ? { kind } : undefined, createdAt: now, updatedAt: now }); onSaved() }; return <Modal title={initial ? '编辑任务' : '新任务'} onClose={onClose}><label>任务名称<input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：写完产品说明" /></label><label>备注<textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="可选" /></label><label>重复<select value={kind} onChange={(e) => setKind(e.target.value as any)}><option value="">不重复</option><option value="daily">每天</option><option value="weekdays">工作日</option><option value="weekly">每周</option><option value="monthly">每月</option></select></label><button className="primary full" onClick={save}>保存任务</button></Modal> }
-function IdeaModal({ initial, date, onClose, onSaved }: { initial: Idea | null; date: string; onClose: () => void; onSaved: () => void }) { const [content, setContent] = useState(initial?.content ?? ''); const [tags, setTags] = useState(initial?.tags.join(', ') ?? '随手记录'); const save = async () => { if (!content.trim()) return; const now = new Date().toISOString(); const next = { content: content.trim(), tags: tags.split(/[,，\s]+/).filter(Boolean), updatedAt: now }; if (initial) await db.ideas.update(initial.id, next); else await db.ideas.add({ id: uid(), date, ...next, createdAt: now }); onSaved() }; const remove = async () => { if (!initial || !window.confirm('确定删除这条想法吗？')) return; await db.ideas.delete(initial.id); onSaved() }; return <Modal title={initial ? '编辑想法' : '写下一个想法'} onClose={onClose}><label>内容<textarea autoFocus value={content} onChange={(e) => setContent(e.target.value)} placeholder="今天想到什么？" rows={6} /></label><label>标签<input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="创新, 决定" /></label><button className="primary full" onClick={save}>保存想法</button>{initial && <button className="danger full" onClick={remove}>删除这条想法</button>}</Modal> }
-function ExpenseModal({ settings, balances, date, onClose, onSaved }: { settings: Settings; balances: Balance[]; date: string; onClose: () => void; onSaved: () => void }) {
-  const [text, setText] = useState(''); const [parsed, setParsed] = useState<any>(null); const [busy, setBusy] = useState(false); const [message, setMessage] = useState('')
-  const persist = async (value: any, entrySource: 'manual' | 'ai') => {
-    const amount = Number(value?.amountCny)
-    if (!Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(value?.date ?? '')) return false
-    const balanceId = typeof value.balanceId === 'string' ? value.balanceId : ''
-    if (balances.length === 0) { setMessage('请先在“总余额”中添加资金，再记录开销。'); return false }
-    if (!balanceId) { setMessage('请选择这笔开销对应的资金来源。'); return false }
-    try {
-      await db.transaction('rw', db.expenses, db.balances, async () => {
-        const selectedBalance = await db.balances.get(balanceId)
-        if (!selectedBalance) throw new Error('missing-balance')
-        if (selectedBalance.amountCny < amount) {
-          const error = new Error('insufficient-balance') as Error & { balanceName?: string; balanceAmount?: number }
-          error.balanceName = selectedBalance.name
-          error.balanceAmount = selectedBalance.amountCny
-          throw error
-        }
-        await db.balances.update(selectedBalance.id, { amountCny: selectedBalance.amountCny - amount, updatedAt: new Date().toISOString() })
-        await db.expenses.add({ id: uid(), date: value.date, amountCny: amount, category: value.category || '其他', note: value.note || text, merchant: value.merchant, paymentMethod: value.paymentMethod, source: entrySource, aiConfidence: value.confidence, balanceId, createdAt: new Date().toISOString() })
-      })
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : ''
-      if (reason === 'missing-balance') setMessage('资金来源已不存在，请重新选择。')
-      else if (reason === 'insufficient-balance') { const detail = error as Error & { balanceName?: string; balanceAmount?: number }; setMessage(`「${detail.balanceName ?? '所选资金'}」余额不足（剩余 ¥${(detail.balanceAmount ?? 0).toFixed(2)}）。`) }
-      else setMessage('保存开销失败，请稍后重试。')
-      return false
+function TodayView({
+  date,
+  tasks,
+  ideas,
+  onTask,
+  onDelete,
+  onEdit,
+  onAddTask,
+  onAddIdea,
+  onEditIdea,
+  onAddExpense,
+}: any) {
+  return (
+    <section className="page page-today">
+      <div className="date-hero">
+        <div className="hero-copy">
+          <div className="date-tab">
+            {new Date(`${date}T12:00:00`).getDate()}
+          </div>
+          <div>
+            <p className="eyebrow">{fmtShortDate(date)}</p>
+            <h1>{fmtDate(date)}</h1>
+            <p className="muted">今天想完成什么，就从这里开始。</p>
+          </div>
+        </div>
+        <div className="mascot-stage">
+          <img src="./today-shinchan.jpg" alt="蜡笔小新打招呼" />
+          <span>今天也要有点好玩的！</span>
+        </div>
+      </div>
+      <div className="quick-actions">
+        <button className="primary action-task" onClick={onAddTask}>
+          <Plus size={17} /> 新任务
+        </button>
+        <button className="action-idea" onClick={onAddIdea}>
+          <Lightbulb size={16} /> 写想法
+        </button>
+        <button className="action-expense" onClick={onAddExpense}>
+          <Wallet size={16} /> 记一笔
+        </button>
+      </div>
+      <div className="section-grid">
+        <div className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">TODAY'S LIST</p>
+              <h2>今天的任务</h2>
+            </div>
+            <span className="count">{tasks.length}</span>
+          </div>
+          {tasks.length === 0 ? (
+            <Empty
+              text="今天还没有任务"
+              action="添加第一件事"
+              onClick={onAddTask}
+            />
+          ) : (
+            <div className="task-list">
+              {tasks.map((t: Task) => (
+                <div className="task-row" key={t.id}>
+                  <button
+                    className={`status-dot ${t.status}`}
+                    onClick={() => onTask(t)}
+                    title={t.status === "done" ? "标记为未完成" : "标记为完成"}
+                    aria-label={`${t.title}：${t.status === "done" ? "已完成，点击标记为未完成" : t.status === "doing" ? "进行中，点击标记为完成" : "未完成，点击标记为进行中"}`}
+                  >
+                    <span className="status-icon">{t.status === "done" ? <Check size={14} strokeWidth={3} /> : t.status === "doing" ? <CircleDot size={14} strokeWidth={2.5} /> : <Circle size={14} strokeWidth={2} />}</span>
+                    <span className="status-label">{t.status === "done" ? "完成" : t.status === "doing" ? "进行中" : "待办"}</span>
+                  </button>
+                  <button
+                    className={
+                      t.status === "done"
+                        ? "task-copy task-copy-btn done"
+                        : "task-copy task-copy-btn"
+                    }
+                    onClick={() => onEdit(t)}
+                  >
+                    <span>{t.title}</span>
+                    {t.note && <small>{t.note}</small>}
+                  </button>
+                  <button
+                    className="ghost-delete"
+                    onClick={() => onDelete(t.id)}
+                    title="删除任务"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="panel idea-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">IDEA BOX</p>
+              <h2>脑袋里的火花</h2>
+            </div>
+            <button className="round-btn" onClick={onAddIdea}>
+              <Plus size={17} />
+            </button>
+          </div>
+          {ideas.length === 0 ? (
+            <Empty
+              text="有灵感就丢进来"
+              action="写一条想法"
+              onClick={onAddIdea}
+            />
+          ) : (
+            ideas.map((i: Idea) => (
+              <button
+                className="idea-snippet idea-button"
+                key={i.id}
+                onClick={() => onEditIdea(i)}
+              >
+                <p>{i.content}</p>
+                <div>
+                  {i.tags.map((tag) => (
+                    <span className="tag" key={tag}>
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CalendarView({ date, tasks, onDate, onPrev, onNext }: any) {
+  const d = new Date(`${date}T12:00:00`);
+  const year = d.getFullYear();
+  const month = d.getMonth();
+  const first = new Date(year, month, 1);
+  const offset = (first.getDay() + 6) % 7;
+  const days = new Date(year, month + 1, 0).getDate();
+  const cells = Array.from(
+    { length: Math.ceil((offset + days) / 7) * 7 },
+    (_, i) => {
+      const n = i - offset + 1;
+      return n > 0 && n <= days ? `${year}-${pad(month + 1)}-${pad(n)}` : null;
+    },
+  );
+  return (
+    <section className="page page-calendar">
+      <div className="page-title">
+        <div>
+          <p className="eyebrow">CALENDAR</p>
+          <h1>
+            {year} 年 {month + 1} 月
+          </h1>
+        </div>
+        <div className="month-nav">
+          <button onClick={onPrev}>
+            <ChevronLeft size={18} />
+          </button>
+          <button onClick={() => onDate(todayISO())}>今天</button>
+          <button onClick={onNext}>
+            <ChevronRight size={18} />
+          </button>
+        </div>
+      </div>
+      <div className="page-feature-art calendar-feature-art">
+        <img src="./calendar-shinchan.jpg" alt="蜡笔小新和生日蛋糕" />
+        <div>
+          <p className="eyebrow">A LITTLE CELEBRATION</p>
+          <span>把值得记住的日子留在这里。</span>
+        </div>
+      </div>
+      <div className="calendar-card">
+        <div className="week-head">
+          {["一", "二", "三", "四", "五", "六", "日"].map((w) => (
+            <span key={w}>{w}</span>
+          ))}
+        </div>
+        <div className="calendar-grid">
+          {cells.map((iso, i) => {
+            const dayTasks = iso ? tasks.filter((t: Task) => t.date === iso || recurrenceMatches(t.recurrence, t.date, iso)) : [];
+            const done = dayTasks.filter((t: Task) => effectiveTaskStatus(t, iso!) === "done").length;
+            const pending = dayTasks.length - done;
+            return (
+              <button
+                className={
+                  iso === date
+                    ? "day-cell selected"
+                    : iso === todayISO()
+                      ? "day-cell today"
+                      : "day-cell"
+                }
+                key={i}
+                disabled={!iso}
+                onClick={() => iso && onDate(iso)}
+              >
+                {iso && (
+                  <>
+                    <b>{Number(iso.slice(-2))}</b>
+                    {dayTasks.length > 0 && <span className="day-counts" aria-label={`已完成 ${done} 项，未完成 ${pending} 项`}>{done > 0 && <i className="done-count">{done}</i>}{pending > 0 && <i className="pending-count">{pending}</i>}</span>}
+                  </>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="calendar-legend"><span><i className="done-count">✓</i> 已完成</span><span><i className="pending-count">•</i> 未完成</span></div>
+      <p className="calendar-hint">点击日期查看当天任务与想法</p>
+    </section>
+  );
+}
+
+function IdeasView({
+  ideas,
+  onAdd,
+  onEdit,
+}: {
+  ideas: Idea[];
+  onAdd: () => void;
+  onEdit: (idea: Idea) => void;
+}) {
+  const [filter, setFilter] = useState("全部");
+  const tags = ["全部", ...Array.from(new Set(ideas.flatMap((i) => i.tags)))];
+  const list =
+    filter === "全部" ? ideas : ideas.filter((i) => i.tags.includes(filter));
+  return (
+    <section className="page page-ideas">
+      <div className="page-title">
+        <div>
+          <p className="eyebrow">FIELD NOTES</p>
+          <h1>想法集</h1>
+          <p className="muted">让零散的念头有地方长大。</p>
+        </div>
+        <button className="primary" onClick={onAdd}>
+          <Plus size={17} /> 新想法
+        </button>
+      </div>
+      <div className="page-feature-art ideas-feature-art">
+        <img src="./ideas-shinchan.jpg" alt="蜡笔小新思考中" />
+        <div>
+          <p className="eyebrow">THOUGHTS IN MOTION</p>
+          <span>让零散的念头有地方长大。</span>
+        </div>
+      </div>
+      <div className="filter-row">
+        {tags.map((t) => (
+          <button
+            className={filter === t ? "filter active" : "filter"}
+            key={t}
+            onClick={() => setFilter(t)}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      {list.length === 0 ? (
+        <Empty text="还没有想法记录" action="写下第一条" onClick={onAdd} />
+      ) : (
+        <div className="idea-feed">
+          {list.map((i) => (
+            <button
+              className="idea-card idea-button"
+              key={i.id}
+              onClick={() => onEdit(i)}
+            >
+              <div className="idea-date">
+                <b>{new Date(`${i.date}T12:00:00`).getDate()}</b>
+                <span>
+                  {new Date(`${i.date}T12:00:00`).toLocaleDateString("zh-CN", {
+                    month: "short",
+                    weekday: "short",
+                  })}
+                </span>
+              </div>
+              <div>
+                <p>{i.content}</p>
+                <div>
+                  {i.tags.map((tag) => (
+                    <span className="tag" key={tag}>
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function WalletView({
+  expenses,
+  budgets,
+  balances,
+  month,
+  total: _total,
+  budget,
+  balanceTotal,
+  onManageBalances,
+  onAdd,
+  onBudget,
+  onSaveStartDate,
+  onDelete,
+}: {
+  expenses: Expense[];
+  budgets: Budget[];
+  balances: Balance[];
+  month: string;
+  total: number;
+  budget: number;
+  balanceTotal: number;
+  onManageBalances: () => void;
+  onAdd: () => void;
+  onBudget: () => void;
+  onSaveStartDate: (date: string) => void;
+  onDelete: (expense: Expense) => void;
+}) {
+  const savedPeriod = budgets.find(
+    (item) => item.month === month && item.category === "*",
+  );
+  const defaultStartDate =
+    savedPeriod?.startDate ||
+    localStorage.getItem(walletStartDateKey(month)) ||
+    `${month}-01`;
+  const [draftStartDate, setDraftStartDate] = useState(defaultStartDate);
+  const [startDate, setStartDate] = useState(defaultStartDate);
+  useEffect(() => {
+    setDraftStartDate(defaultStartDate);
+    setStartDate(defaultStartDate);
+  }, [defaultStartDate]);
+  const monthlyExpenses = expenses.filter(
+    (expense) => monthKey(expense.date) === month && expense.date >= startDate,
+  );
+  const periodTotal = monthlyExpenses.reduce(
+    (sum, expense) => sum + expense.amountCny,
+    0,
+  );
+  const dateGroups = groupExpensesByDate(monthlyExpenses);
+  const byCategory = monthlyExpenses.reduce<Record<string, number>>(
+    (result, expense) => ({
+      ...result,
+      [expense.category]: (result[expense.category] ?? 0) + expense.amountCny,
+    }),
+    {},
+  );
+  const categoryBudget = (category: string) =>
+    budgets.find((item) => item.month === month && item.category === category)
+      ?.limitCny;
+  const balanceNames = new Map(
+    balances.map((balance) => [
+      balance.id,
+      `${balance.name} · ${balance.location}`,
+    ]),
+  );
+  return (
+    <section className="page page-wallet">
+      <div className="page-title">
+        <div>
+          <p className="eyebrow">MONEY, QUIETLY</p>
+          <h1>钱包</h1>
+          <p className="muted">{month} 的每一笔，都值得被看见。</p>
+        </div>
+        <button className="primary" onClick={onAdd}>
+          <Plus size={17} /> 记一笔
+        </button>
+      </div>
+      <div className="page-feature-art wallet-feature-art">
+        <img src="./wallet-shinchan.jpg" alt="蜡笔小新靠在门边" />
+        <div>
+          <p className="eyebrow">A QUIET PAUSE</p>
+          <span>看一眼余额，再决定下一笔。</span>
+        </div>
+      </div>
+      <button className="balance-card" onClick={onManageBalances}>
+        <span>总余额</span>
+        <strong>¥{balanceTotal.toFixed(2)}</strong>
+        <small>点击管理资金和存放位置</small>
+      </button>
+      <div className="money-summary">
+        <div>
+          <span>本周期已花</span>
+          <strong>¥{periodTotal.toFixed(2)}</strong>
+        </div>
+        <div>
+          <span>预算</span>
+          <strong>{budget ? `¥${budget.toFixed(2)}` : "未设置"}</strong>
+        </div>
+        <div className={budget && periodTotal > budget ? "over" : ""}>
+          <span>剩余</span>
+          <strong>
+            {budget ? `¥${(budget - periodTotal).toFixed(2)}` : "—"}
+          </strong>
+        </div>
+      </div>
+      <div className="wallet-period panel">
+        <div>
+          <p className="eyebrow">WALLET PERIOD</p>
+          <h2>开始日期</h2>
+          <p className="form-hint">确认后按此日期重新计算剩余金额</p>
+        </div>
+        <div className="wallet-period-control">
+          <input
+            type="date"
+            min={`${month}-01`}
+            max={`${month}-${new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()}`}
+            value={draftStartDate}
+            onChange={(event) => setDraftStartDate(event.target.value)}
+            aria-label="开始日期"
+          />
+          <span>{fmtShortDate(draftStartDate) || "—"}</span>
+          <button
+            className="primary"
+            onClick={() => {
+              setStartDate(draftStartDate);
+              onSaveStartDate(draftStartDate);
+            }}
+            disabled={
+              !isISODate(draftStartDate) || monthKey(draftStartDate) !== month
+            }
+          >
+            确定
+          </button>
+        </div>
+      </div>
+      <div className="quick-actions">
+        <button onClick={onBudget}>
+          <SettingsIcon size={16} /> 设置本月预算
+        </button>
+      </div>
+      <div className="panel breakdown-panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">BREAKDOWN</p>
+            <h2>分类统计</h2>
+          </div>
+        </div>
+        {Object.keys(byCategory).length === 0 ? (
+          <Empty text="还没有开销记录" action="记下第一笔" onClick={onAdd} />
+        ) : (
+          <div className="breakdown-grid">
+            {Object.entries(byCategory).map(([category, amount]) => {
+              const limit = categoryBudget(category);
+              return (
+                <div className="breakdown-row" key={category}>
+                  <span>
+                    {category}
+                    {limit && <small> / ¥{limit}</small>}
+                  </span>
+                  <div className="bar">
+                    <i
+                      className={limit && amount > limit ? "over-bar" : ""}
+                      style={{
+                        width: `${Math.min(100, limit ? (amount / limit) * 100 : (amount / Math.max(periodTotal, 1)) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <b>¥{amount.toFixed(2)}</b>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <div className="ledger-heading">
+        <div>
+          <p className="eyebrow">DAILY LEDGER</p>
+          <h2>每日流水</h2>
+        </div>
+        <span>{monthlyExpenses.length} 笔</span>
+      </div>
+      {dateGroups.length === 0 ? (
+        <div className="panel">
+          <Empty text="这个月还没有开销" action="记下第一笔" onClick={onAdd} />
+        </div>
+      ) : (
+        <div className="expense-groups">
+          {dateGroups.map((group) => {
+            const groupDate = new Date(`${group.date}T12:00:00`);
+            return (
+              <section className="expense-day" key={group.date}>
+                <header className="expense-day-head">
+                  <div className="expense-day-date">
+                    <strong>{groupDate.getDate()}</strong>
+                    <div>
+                      <b>
+                        {groupDate.toLocaleDateString("zh-CN", {
+                          month: "long",
+                        })}
+                      </b>
+                      <span>
+                        {groupDate.toLocaleDateString("zh-CN", {
+                          weekday: "long",
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="expense-day-total">
+                    <span>当日合计</span>
+                    <b>¥{group.total.toFixed(2)}</b>
+                  </div>
+                </header>
+                <div className="expense-day-list">
+                  {group.items.map((expense) => (
+                    <div className="expense-row" key={expense.id}>
+                      <div className="expense-main">
+                        <b>{expense.category}</b>
+                        <small>
+                          {expense.note || expense.merchant || "未添加备注"}
+                          {expense.paymentMethod
+                            ? ` · ${expense.paymentMethod}`
+                            : ""}
+                          {expense.balanceId &&
+                          balanceNames.get(expense.balanceId)
+                            ? ` · 来源：${balanceNames.get(expense.balanceId)}`
+                            : ""}
+                        </small>
+                      </div>
+                      <strong>¥{expense.amountCny.toFixed(2)}</strong>
+                      <button
+                        className="expense-delete"
+                        onClick={() => onDelete(expense)}
+                        aria-label={`删除 ${expense.note || expense.category}`}
+                        title="删除这笔开销"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Empty({ text, action, onClick }: any) {
+  return (
+    <div className="empty">
+      <p>{text}</p>
+      <button onClick={onClick}>
+        {action} <Plus size={14} />
+      </button>
+    </div>
+  );
+}
+function Modal({ title, children, onClose, className = "" }: any) {
+  return (
+    <div className="modal-backdrop">
+      <div className={`modal ${className}`.trim()}>
+        <div className="modal-head">
+          <h2>{title}</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="关闭">
+            <X size={18} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+function TaskModal({
+  initial,
+  date,
+  onClose,
+  onSaved,
+}: {
+  initial: Task | null;
+  date: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [note, setNote] = useState(initial?.note ?? "");
+  const [kind, setKind] = useState<RecurrenceKind | "">(
+    initial?.recurrence?.kind ?? "",
+  );
+  const save = async () => {
+    if (!title.trim()) return;
+    const now = new Date().toISOString();
+    if (initial)
+      await db.tasks.update(initial.id, {
+        title: title.trim(),
+        note: note.trim(),
+        recurrence: kind ? { kind } : undefined,
+        updatedAt: now,
+      });
+    else
+      await db.tasks.add({
+        id: uid(),
+        title: title.trim(),
+        note: note.trim(),
+        date,
+        status: "todo",
+        recurrence: kind ? { kind } : undefined,
+        createdAt: now,
+        updatedAt: now,
+      });
+    onSaved();
+  };
+  return (
+    <Modal title={initial ? "编辑任务" : "新任务"} onClose={onClose}>
+      <label>
+        任务名称
+        <input
+          autoFocus
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="例如：写完产品说明"
+        />
+      </label>
+      <label>
+        备注
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="可选"
+        />
+      </label>
+      <label>
+        重复
+        <select value={kind} onChange={(e) => setKind(e.target.value as any)}>
+          <option value="">不重复</option>
+          <option value="daily">每天</option>
+          <option value="weekdays">工作日</option>
+          <option value="weekly">每周</option>
+          <option value="monthly">每月</option>
+        </select>
+      </label>
+      <button className="primary full" onClick={save}>
+        保存任务
+      </button>
+    </Modal>
+  );
+}
+function IdeaModal({
+  initial,
+  date,
+  onClose,
+  onSaved,
+}: {
+  initial: Idea | null;
+  date: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [content, setContent] = useState(initial?.content ?? "");
+  const [tags, setTags] = useState(initial?.tags.join(", ") ?? "随手记录");
+  const save = async () => {
+    if (!content.trim()) return;
+    const now = new Date().toISOString();
+    const next = {
+      content: content.trim(),
+      tags: tags.split(/[,，\s]+/).filter(Boolean),
+      updatedAt: now,
+    };
+    if (initial) await db.ideas.update(initial.id, next);
+    else await db.ideas.add({ id: uid(), date, ...next, createdAt: now });
+    onSaved();
+  };
+  const remove = async () => {
+    if (!initial || !window.confirm("确定删除这条想法吗？")) return;
+    await db.ideas.delete(initial.id);
+    onSaved();
+  };
+  return (
+    <Modal title={initial ? "编辑想法" : "写下一个想法"} onClose={onClose}>
+      <label>
+        内容
+        <textarea
+          autoFocus
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          placeholder="今天想到什么？"
+          rows={6}
+        />
+      </label>
+      <label>
+        标签
+        <input
+          value={tags}
+          onChange={(e) => setTags(e.target.value)}
+          placeholder="创新, 决定"
+        />
+      </label>
+      <button className="primary full" onClick={save}>
+        保存想法
+      </button>
+      {initial && (
+        <button className="danger full" onClick={remove}>
+          删除这条想法
+        </button>
+      )}
+    </Modal>
+  );
+}
+function ExpenseModal({
+  settings,
+  balances,
+  date,
+  onClose,
+  onSaved,
+}: {
+  settings: Settings;
+  balances: Balance[];
+  date: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [parsed, setParsed] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const persist = async (value: any, entrySource: "manual" | "ai") => {
+    const amount = Number(value?.amountCny);
+    if (
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(value?.date ?? "")
+    )
+      return false;
+    const balanceId =
+      typeof value.balanceId === "string" ? value.balanceId : "";
+    if (balances.length === 0) {
+      setMessage("请先在“总余额”中添加资金，再记录开销。");
+      return false;
     }
-    return true
-  }
-  const parse = async () => { setBusy(true); setMessage(''); let result: any = null
-    if (settings.aiApiKey) { try { const res = await fetch(`${settings.aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.aiApiKey}` }, body: JSON.stringify({ model: settings.aiModel, temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: `Extract an expense as JSON with date YYYY-MM-DD, amountCny number, category, note, merchant, paymentMethod and confidence 0-1. Allowed categories: ${settings.categories.join(', ')}. Use the provided date if none is stated. Return JSON only.` }, { role: 'user', content: `Date: ${date}\nText: ${text}` }] }) }); if (!res.ok) throw new Error(`HTTP ${res.status}`); const data = await res.json(); result = JSON.parse(data.choices?.[0]?.message?.content || '{}') } catch { setMessage('AI 接口不可用，已改用本地关键词解析。请检查地址、Key 和 CORS 设置。') } }
-    if (!result) result = parseSimpleExpense(text)
-    setParsed({ ...result, date: result.date || date, confidence: result.confidence ?? 0.65, balanceId: balances.length === 1 ? balances[0].id : '' }); setBusy(false)
-  }
-  const save = async () => { if (await persist(parsed, settings.aiApiKey && parsed?.confidence ? 'ai' : 'manual')) onSaved() }
-  return <Modal title="记一笔开销" className="expense-modal" onClose={onClose}>
-    <div className="expense-slip-head"><div><span>NEW EXPENSE</span><strong>{fmtShortDate(date)}</strong></div><p>把刚刚花的，轻轻记下来。</p></div>
-    <section className="expense-entry-section"><div className="expense-section-label"><span>01</span><b>描述这笔开销</b></div><div className="ai-input"><Sparkles size={18} /><input autoFocus value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && parse()} placeholder="例如：午饭 32 元，和同事吃" /><button onClick={parse} disabled={!text.trim() || busy}>{busy ? '解析中' : '帮我填写'}</button></div></section>
-    {message && <p className="inline-warning">{message}</p>}
-    <section className="expense-confirm-section"><div className="expense-section-label"><span>02</span><b>确认账单信息</b></div>{parsed ? <div className="parse-card editable"><label className="amount-field"><span>金额</span><div className="amount-input"><i>¥</i><input type="number" min="0.01" step="0.01" value={parsed.amountCny ?? ''} onChange={(e) => setParsed({ ...parsed, amountCny: e.target.value })} /></div></label><label><span>分类</span><select value={parsed.category || '其他'} onChange={(e) => setParsed({ ...parsed, category: e.target.value })}>{settings.categories.map((c) => <option key={c}>{c}</option>)}</select></label><label><span>日期</span><input type="date" value={parsed.date || date} onChange={(e) => setParsed({ ...parsed, date: e.target.value })} /></label><label className="wide"><span>从哪里支付</span><select required value={parsed.balanceId ?? ''} onChange={(e) => setParsed({ ...parsed, balanceId: e.target.value })}><option value="">{balances.length ? '选择一笔资金' : '请先添加总余额资金'}</option>{balances.map((balance) => <option key={balance.id} value={balance.id}>{balance.name} · {balance.location} · ¥{balance.amountCny.toFixed(2)}</option>)}</select></label><label className="wide"><span>备注</span><input value={parsed.note || text} onChange={(e) => setParsed({ ...parsed, note: e.target.value })} placeholder="给以后回看的自己留句话" /></label></div> : <div className="expense-empty-state"><Sparkles size={22} /><p>输入一句话，我会帮你整理金额、分类和日期。</p></div>}</section>
-    {balances.length === 0 && parsed && <p className="inline-warning">还没有可用的资金来源；请先关闭此窗口，在“总余额”中添加资金。</p>}
-    <div className="expense-modal-footer"><p>保存后会更新余额、已花、分类统计与每日流水。</p><button className="primary" onClick={save} disabled={!parsed?.amountCny || balances.length === 0}>确认记下</button></div>
-  </Modal>
+    if (!balanceId) {
+      setMessage("请选择这笔开销对应的资金来源。");
+      return false;
+    }
+    try {
+      await db.transaction("rw", db.expenses, db.balances, async () => {
+        const selectedBalance = await db.balances.get(balanceId);
+        if (!selectedBalance) throw new Error("missing-balance");
+        if (selectedBalance.amountCny < amount) {
+          const error = new Error("insufficient-balance") as Error & {
+            balanceName?: string;
+            balanceAmount?: number;
+          };
+          error.balanceName = selectedBalance.name;
+          error.balanceAmount = selectedBalance.amountCny;
+          throw error;
+        }
+        await db.balances.update(selectedBalance.id, {
+          amountCny: selectedBalance.amountCny - amount,
+          updatedAt: new Date().toISOString(),
+        });
+        await db.expenses.add({
+          id: uid(),
+          date: value.date,
+          amountCny: amount,
+          category: value.category || "其他",
+          note: value.note || text,
+          merchant: value.merchant,
+          paymentMethod: value.paymentMethod,
+          source: entrySource,
+          aiConfidence: value.confidence,
+          balanceId,
+          createdAt: new Date().toISOString(),
+        });
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "";
+      if (reason === "missing-balance")
+        setMessage("资金来源已不存在，请重新选择。");
+      else if (reason === "insufficient-balance") {
+        const detail = error as Error & {
+          balanceName?: string;
+          balanceAmount?: number;
+        };
+        setMessage(
+          `「${detail.balanceName ?? "所选资金"}」余额不足（剩余 ¥${(detail.balanceAmount ?? 0).toFixed(2)}）。`,
+        );
+      } else setMessage("保存开销失败，请稍后重试。");
+      return false;
+    }
+    return true;
+  };
+  const parse = async () => {
+    setBusy(true);
+    setMessage("");
+    let result: any = null;
+    if (settings.aiApiKey) {
+      try {
+        const res = await fetch(
+          `${settings.aiBaseUrl.replace(/\/$/, "")}/chat/completions`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${settings.aiApiKey}`,
+            },
+            body: JSON.stringify({
+              model: settings.aiModel,
+              temperature: 0,
+              response_format: { type: "json_object" },
+              messages: [
+                {
+                  role: "system",
+                  content: `Extract an expense as JSON with date YYYY-MM-DD, amountCny number, category, note, merchant, paymentMethod and confidence 0-1. Allowed categories: ${settings.categories.join(", ")}. Use the provided date if none is stated. Return JSON only.`,
+                },
+                { role: "user", content: `Date: ${date}\nText: ${text}` },
+              ],
+            }),
+          },
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        result = JSON.parse(data.choices?.[0]?.message?.content || "{}");
+      } catch {
+        setMessage(
+          "AI 接口不可用，已改用本地关键词解析。请检查地址、Key 和 CORS 设置。",
+        );
+      }
+    }
+    if (!result) result = parseSimpleExpense(text);
+    setParsed({
+      ...result,
+      date: result.date || date,
+      confidence: result.confidence ?? 0.65,
+      balanceId: balances.length === 1 ? balances[0].id : "",
+    });
+    setBusy(false);
+  };
+  const save = async () => {
+    if (
+      await persist(
+        parsed,
+        settings.aiApiKey && parsed?.confidence ? "ai" : "manual",
+      )
+    )
+      onSaved();
+  };
+  return (
+    <Modal title="记一笔开销" className="expense-modal" onClose={onClose}>
+      <div className="expense-slip-head">
+        <div>
+          <span>NEW EXPENSE</span>
+          <strong>{fmtShortDate(date)}</strong>
+        </div>
+        <p>把刚刚花的，轻轻记下来。</p>
+      </div>
+      <section className="expense-entry-section">
+        <div className="expense-section-label">
+          <span>01</span>
+          <b>描述这笔开销</b>
+        </div>
+        <div className="ai-input">
+          <Sparkles size={18} />
+          <input
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && parse()}
+            placeholder="例如：午饭 32 元，和同事吃"
+          />
+          <button onClick={parse} disabled={!text.trim() || busy}>
+            {busy ? "解析中" : "帮我填写"}
+          </button>
+        </div>
+      </section>
+      {message && <p className="inline-warning">{message}</p>}
+      <section className="expense-confirm-section">
+        <div className="expense-section-label">
+          <span>02</span>
+          <b>确认账单信息</b>
+        </div>
+        {parsed ? (
+          <div className="parse-card editable">
+            <label className="amount-field">
+              <span>金额</span>
+              <div className="amount-input">
+                <i>¥</i>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={parsed.amountCny ?? ""}
+                  onChange={(e) =>
+                    setParsed({ ...parsed, amountCny: e.target.value })
+                  }
+                />
+              </div>
+            </label>
+            <label>
+              <span>分类</span>
+              <select
+                value={parsed.category || "其他"}
+                onChange={(e) =>
+                  setParsed({ ...parsed, category: e.target.value })
+                }
+              >
+                {settings.categories.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>日期</span>
+              <input
+                type="date"
+                value={parsed.date || date}
+                onChange={(e) => setParsed({ ...parsed, date: e.target.value })}
+              />
+            </label>
+            <label className="wide">
+              <span>从哪里支付</span>
+              <select
+                required
+                value={parsed.balanceId ?? ""}
+                onChange={(e) =>
+                  setParsed({ ...parsed, balanceId: e.target.value })
+                }
+              >
+                <option value="">
+                  {balances.length ? "选择一笔资金" : "请先添加总余额资金"}
+                </option>
+                {balances.map((balance) => (
+                  <option key={balance.id} value={balance.id}>
+                    {balance.name} · {balance.location} · ¥
+                    {balance.amountCny.toFixed(2)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="wide">
+              <span>备注</span>
+              <input
+                value={parsed.note || text}
+                onChange={(e) => setParsed({ ...parsed, note: e.target.value })}
+                placeholder="给以后回看的自己留句话"
+              />
+            </label>
+          </div>
+        ) : (
+          <div className="expense-empty-state">
+            <Sparkles size={22} />
+            <p>输入一句话，我会帮你整理金额、分类和日期。</p>
+          </div>
+        )}
+      </section>
+      {balances.length === 0 && parsed && (
+        <p className="inline-warning">
+          还没有可用的资金来源；请先关闭此窗口，在“总余额”中添加资金。
+        </p>
+      )}
+      <div className="expense-modal-footer">
+        <p>保存后会更新余额、已花、分类统计与每日流水。</p>
+        <button
+          className="primary"
+          onClick={save}
+          disabled={!parsed?.amountCny || balances.length === 0}
+        >
+          确认记下
+        </button>
+      </div>
+    </Modal>
+  );
 }
 
-function BalanceModal({ balances, onClose, onSaved }: { balances: Balance[]; onClose: () => void; onSaved: () => void }) {
-  const [editing, setEditing] = useState<Balance | null>(null)
-  const [name, setName] = useState(''); const [amount, setAmount] = useState(''); const [location, setLocation] = useState(''); const [note, setNote] = useState('')
-  const clearForm = () => { setEditing(null); setName(''); setAmount(''); setLocation(''); setNote('') }
-  const load = (item: Balance) => { setEditing(item); setName(item.name); setAmount(String(item.amountCny)); setLocation(item.location); setNote(item.note ?? '') }
-  const save = async () => { const numeric = Number(amount); if (!name.trim() || !location.trim() || !Number.isFinite(numeric) || numeric < 0) return; const now = new Date().toISOString(); const data = { name: name.trim(), amountCny: numeric, location: location.trim(), note: note.trim() || undefined, updatedAt: now }; if (editing) await db.balances.update(editing.id, data); else await db.balances.add({ id: uid(), ...data, createdAt: now }); clearForm(); onSaved() }
-  const remove = async (item: Balance) => { if (!window.confirm(`确定删除「${item.name}」这笔余额吗？`)) return; await db.balances.delete(item.id); if (editing?.id === item.id) clearForm(); onSaved() }
-  return <Modal title="总余额" onClose={onClose}><p className="balance-total-modal">当前总余额 <strong>¥{balances.reduce((sum, item) => sum + item.amountCny, 0).toFixed(2)}</strong></p><div className="balance-list">{balances.length ? balances.map((item) => <div className="balance-row" key={item.id}><div><b>{item.name}</b><small>{item.location}{item.note ? ` · ${item.note}` : ''}</small></div><strong>¥{item.amountCny.toFixed(2)}</strong><button className="icon-btn" onClick={() => load(item)}>编辑</button><button className="danger-icon" onClick={() => remove(item)}>删除</button></div>) : <p className="empty">还没有添加资金</p>}</div><div className="balance-form"><h3>{editing ? '编辑资金' : '添加资金'}</h3><label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：生活费" /></label><label>金额<input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="例如：5000" /></label><label>放置位置<input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="例如：银行卡、现金、支付宝" /></label><label>备注<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="可选" /></label><button className="primary full" onClick={save}>{editing ? '保存修改' : '添加到总余额'}</button>{editing && <button className="danger full" onClick={clearForm}>取消编辑</button>}</div></Modal>
+function BalanceModal({
+  balances,
+  onClose,
+  onSaved,
+}: {
+  balances: Balance[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [editing, setEditing] = useState<Balance | null>(null);
+  const [name, setName] = useState("");
+  const [amount, setAmount] = useState("");
+  const [location, setLocation] = useState("");
+  const [note, setNote] = useState("");
+  const clearForm = () => {
+    setEditing(null);
+    setName("");
+    setAmount("");
+    setLocation("");
+    setNote("");
+  };
+  const load = (item: Balance) => {
+    setEditing(item);
+    setName(item.name);
+    setAmount(String(item.amountCny));
+    setLocation(item.location);
+    setNote(item.note ?? "");
+  };
+  const save = async () => {
+    const numeric = Number(amount);
+    if (
+      !name.trim() ||
+      !location.trim() ||
+      !Number.isFinite(numeric) ||
+      numeric < 0
+    )
+      return;
+    const now = new Date().toISOString();
+    const data = {
+      name: name.trim(),
+      amountCny: numeric,
+      location: location.trim(),
+      note: note.trim() || undefined,
+      updatedAt: now,
+    };
+    if (editing) await db.balances.update(editing.id, data);
+    else await db.balances.add({ id: uid(), ...data, createdAt: now });
+    clearForm();
+    onSaved();
+  };
+  const remove = async (item: Balance) => {
+    if (!window.confirm(`确定删除「${item.name}」这笔余额吗？`)) return;
+    await db.balances.delete(item.id);
+    if (editing?.id === item.id) clearForm();
+    onSaved();
+  };
+  return (
+    <Modal title="总余额" onClose={onClose}>
+      <p className="balance-total-modal">
+        当前总余额{" "}
+        <strong>
+          ¥{balances.reduce((sum, item) => sum + item.amountCny, 0).toFixed(2)}
+        </strong>
+      </p>
+      <div className="balance-list">
+        {balances.length ? (
+          balances.map((item) => (
+            <div className="balance-row" key={item.id}>
+              <div>
+                <b>{item.name}</b>
+                <small>
+                  {item.location}
+                  {item.note ? ` · ${item.note}` : ""}
+                </small>
+              </div>
+              <strong>¥{item.amountCny.toFixed(2)}</strong>
+              <button className="icon-btn" onClick={() => load(item)}>
+                编辑
+              </button>
+              <button className="danger-icon" onClick={() => remove(item)}>
+                删除
+              </button>
+            </div>
+          ))
+        ) : (
+          <p className="empty">还没有添加资金</p>
+        )}
+      </div>
+      <div className="balance-form">
+        <h3>{editing ? "编辑资金" : "添加资金"}</h3>
+        <label>
+          名称
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="例如：生活费"
+          />
+        </label>
+        <label>
+          金额
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            placeholder="例如：5000"
+          />
+        </label>
+        <label>
+          放置位置
+          <input
+            value={location}
+            onChange={(event) => setLocation(event.target.value)}
+            placeholder="例如：银行卡、现金、支付宝"
+          />
+        </label>
+        <label>
+          备注
+          <input
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="可选"
+          />
+        </label>
+        <button className="primary full" onClick={save}>
+          {editing ? "保存修改" : "添加到总余额"}
+        </button>
+        {editing && (
+          <button className="danger full" onClick={clearForm}>
+            取消编辑
+          </button>
+        )}
+      </div>
+    </Modal>
+  );
 }
 
-function BudgetModal({ month, budgets, categories, onClose, onSaved }: { month: string; budgets: Budget[]; categories: string[]; onClose: () => void; onSaved: () => void }) { const existing = Object.fromEntries(budgets.filter((b) => b.month === month).map((b) => [b.category, String(b.limitCny)])); const existingStartDate = budgets.find((b) => b.month === month && b.category === '*')?.startDate ?? ''; const [values, setValues] = useState<Record<string, string>>(existing); const [startDate, setStartDate] = useState(existingStartDate); const save = async () => { for (const category of ['*', ...categories]) { const id = `${month}-${category}`; const n = Number(values[category]); if (n > 0) await db.budgets.put({ id, month, category, limitCny: n, ...(category === '*' && isISODate(startDate) ? { startDate } : {}) }); else await db.budgets.delete(id) } onSaved() }; return <Modal title={`${month} 预算`} onClose={onClose}><p className="form-hint">可只设置总预算，也可为常用分类分别设置额度。</p><div className="budget-fields"><label>总预算<input type="number" min="0" step="0.01" value={values['*'] ?? ''} onChange={(e) => setValues({ ...values, '*': e.target.value })} placeholder="例如：5000" /></label><label>钱包开始日期<input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></label>{categories.map((category) => <label key={category}>{category}<input type="number" min="0" step="0.01" value={values[category] ?? ''} onChange={(e) => setValues({ ...values, [category]: e.target.value })} placeholder="不设置" /></label>)}</div><button className="primary full" onClick={save}>保存预算</button></Modal> }
-
-function SettingsModal({ settings, onClose, onSaved }: { settings: Settings; onClose: () => void; onSaved: (settings: Settings) => void }) {
-  const [form, setForm] = useState(settings)
-  const exportData = async () => { const { aiApiKey: _secret, ...safeSettings } = form; const payload = { schemaVersion: 1, exportedAt: new Date().toISOString(), tasks: await db.tasks.toArray(), ideas: await db.ideas.toArray(), expenses: await db.expenses.toArray(), budgets: await db.budgets.toArray(), balances: await db.balances.toArray(), settings: safeSettings }; const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = `quiet-daybook-${todayISO()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000) }
-  const importData = async (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; try { const p = JSON.parse(await file.text()); if (!validateBackup(p)) throw new Error('invalid'); await db.transaction('rw', db.tasks, db.ideas, db.expenses, db.budgets, db.balances, async () => { await db.tasks.clear(); await db.ideas.clear(); await db.expenses.clear(); await db.budgets.clear(); await db.balances.clear(); await db.tasks.bulkAdd(p.tasks); await db.ideas.bulkAdd(p.ideas); await db.expenses.bulkAdd(p.expenses); await db.budgets.bulkAdd(p.budgets); if (p.balances) await db.balances.bulkAdd(p.balances) }); alert('备份已恢复。API Key 出于安全原因不会随备份导入。'); onSaved(form) } catch { alert('备份文件格式不正确：请检查版本、日期、金额和必填字段。') } finally { e.target.value = '' } }
-  const clearAll = async () => { if (!window.confirm('确定清空全部任务、想法、开销、余额和预算吗？此操作无法撤销，请先导出备份。')) return; await db.transaction('rw', db.tasks, db.ideas, db.expenses, db.budgets, db.balances, async () => { await db.tasks.clear(); await db.ideas.clear(); await db.expenses.clear(); await db.budgets.clear(); await db.balances.clear() }); onSaved(form); window.location.reload() }
-  return <Modal title="设置" onClose={onClose}><p className="settings-note">数据只保存在这台设备的浏览器中，不会自动同步到手机或其他电脑。</p><label>千问 API 地址<input value={form.aiBaseUrl} onChange={(e) => setForm({ ...form, aiBaseUrl: e.target.value })} /></label><label>千问模型<input list="qwen-models" value={form.aiModel} onChange={(e) => setForm({ ...form, aiModel: e.target.value })} /><datalist id="qwen-models"><option value="qwen-plus" /><option value="qwen-turbo" /><option value="qwen-max" /></datalist></label><label>百炼 API Key<input type="password" value={form.aiApiKey} onChange={(e) => setForm({ ...form, aiApiKey: e.target.value })} placeholder="sk-...；可留空使用本地解析" /></label><p className="form-hint">在 <a href="https://bailian.console.aliyun.com/?tab=model#/api-key" target="_blank" rel="noreferrer">阿里云百炼控制台</a>创建 Key。Key 只保存在本机 IndexedDB，不会进入备份；不要在公共电脑保存。</p><div className="settings-actions"><button onClick={exportData}><Download size={16} /> 导出 JSON</button><label className="file-btn">导入 JSON<input type="file" accept="application/json" onChange={importData} /></label></div><button className="primary full" onClick={async () => { const saved = { ...form, id: 'main' as const }; await db.settings.put(saved); onSaved(saved) }}>保存设置</button><button className="danger full" onClick={clearAll}>清空全部数据</button></Modal>
+function BudgetModal({
+  month,
+  budgets,
+  categories,
+  onClose,
+  onSaved,
+}: {
+  month: string;
+  budgets: Budget[];
+  categories: string[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const existing = Object.fromEntries(
+    budgets
+      .filter((b) => b.month === month)
+      .map((b) => [b.category, String(b.limitCny)]),
+  );
+  const existingStartDate =
+    budgets.find((b) => b.month === month && b.category === "*")?.startDate ??
+    "";
+  const [values, setValues] = useState<Record<string, string>>(existing);
+  const [startDate, setStartDate] = useState(existingStartDate);
+  const save = async () => {
+    for (const category of ["*", ...categories]) {
+      const id = `${month}-${category}`;
+      const n = Number(values[category]);
+      if (n > 0)
+        await db.budgets.put({
+          id,
+          month,
+          category,
+          limitCny: n,
+          ...(category === "*" && isISODate(startDate) ? { startDate } : {}),
+        });
+      else await db.budgets.delete(id);
+    }
+    onSaved();
+  };
+  return (
+    <Modal title={`${month} 预算`} onClose={onClose}>
+      <p className="form-hint">可只设置总预算，也可为常用分类分别设置额度。</p>
+      <div className="budget-fields">
+        <label>
+          总预算
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={values["*"] ?? ""}
+            onChange={(e) => setValues({ ...values, "*": e.target.value })}
+            placeholder="例如：5000"
+          />
+        </label>
+        <label>
+          钱包开始日期
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+        </label>
+        {categories.map((category) => (
+          <label key={category}>
+            {category}
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={values[category] ?? ""}
+              onChange={(e) =>
+                setValues({ ...values, [category]: e.target.value })
+              }
+              placeholder="不设置"
+            />
+          </label>
+        ))}
+      </div>
+      <button className="primary full" onClick={save}>
+        保存预算
+      </button>
+    </Modal>
+  );
 }
-function shiftMonth(iso: string, delta: number) { const d = new Date(`${iso}T12:00:00`); d.setDate(1); d.setMonth(d.getMonth() + delta); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01` }
+
+function SettingsModal({
+  settings,
+  onClose,
+  onSaved,
+}: {
+  settings: Settings;
+  onClose: () => void;
+  onSaved: (settings: Settings) => void;
+}) {
+  const [form, setForm] = useState(settings);
+  const exportData = async () => {
+    const { aiApiKey: _secret, ...safeSettings } = form;
+    const payload = {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      tasks: await db.tasks.toArray(),
+      ideas: await db.ideas.toArray(),
+      expenses: await db.expenses.toArray(),
+      budgets: await db.budgets.toArray(),
+      balances: await db.balances.toArray(),
+      settings: safeSettings,
+    };
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(payload, null, 2)], {
+        type: "application/json",
+      }),
+    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `quiet-daybook-${todayISO()}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const importData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const p = JSON.parse(await file.text());
+      if (!validateBackup(p)) throw new Error("invalid");
+      await db.transaction(
+        "rw",
+        db.tasks,
+        db.ideas,
+        db.expenses,
+        db.budgets,
+        db.balances,
+        async () => {
+          await db.tasks.clear();
+          await db.ideas.clear();
+          await db.expenses.clear();
+          await db.budgets.clear();
+          await db.balances.clear();
+          await db.tasks.bulkAdd(p.tasks);
+          await db.ideas.bulkAdd(p.ideas);
+          await db.expenses.bulkAdd(p.expenses);
+          await db.budgets.bulkAdd(p.budgets);
+          if (p.balances) await db.balances.bulkAdd(p.balances);
+        },
+      );
+      alert("备份已恢复。API Key 出于安全原因不会随备份导入。");
+      onSaved(form);
+    } catch {
+      alert("备份文件格式不正确：请检查版本、日期、金额和必填字段。");
+    } finally {
+      e.target.value = "";
+    }
+  };
+  const clearAll = async () => {
+    if (
+      !window.confirm(
+        "确定清空全部任务、想法、开销、余额和预算吗？此操作无法撤销，请先导出备份。",
+      )
+    )
+      return;
+    await db.transaction(
+      "rw",
+      db.tasks,
+      db.ideas,
+      db.expenses,
+      db.budgets,
+      db.balances,
+      async () => {
+        await db.tasks.clear();
+        await db.ideas.clear();
+        await db.expenses.clear();
+        await db.budgets.clear();
+        await db.balances.clear();
+      },
+    );
+    onSaved(form);
+    window.location.reload();
+  };
+  return (
+    <Modal title="设置" onClose={onClose}>
+      <p className="settings-note">
+        数据只保存在这台设备的浏览器中，不会自动同步到手机或其他电脑。
+      </p>
+      <label>
+        千问 API 地址
+        <input
+          value={form.aiBaseUrl}
+          onChange={(e) => setForm({ ...form, aiBaseUrl: e.target.value })}
+        />
+      </label>
+      <label>
+        千问模型
+        <input
+          list="qwen-models"
+          value={form.aiModel}
+          onChange={(e) => setForm({ ...form, aiModel: e.target.value })}
+        />
+        <datalist id="qwen-models">
+          <option value="qwen-plus" />
+          <option value="qwen-turbo" />
+          <option value="qwen-max" />
+        </datalist>
+      </label>
+      <label>
+        百炼 API Key
+        <input
+          type="password"
+          value={form.aiApiKey}
+          onChange={(e) => setForm({ ...form, aiApiKey: e.target.value })}
+          placeholder="sk-...；可留空使用本地解析"
+        />
+      </label>
+      <p className="form-hint">
+        在{" "}
+        <a
+          href="https://bailian.console.aliyun.com/?tab=model#/api-key"
+          target="_blank"
+          rel="noreferrer"
+        >
+          阿里云百炼控制台
+        </a>
+        创建 Key。Key 只保存在本机 IndexedDB，不会进入备份；不要在公共电脑保存。
+      </p>
+      <div className="settings-actions">
+        <button onClick={exportData}>
+          <Download size={16} /> 导出 JSON
+        </button>
+        <label className="file-btn">
+          导入 JSON
+          <input type="file" accept="application/json" onChange={importData} />
+        </label>
+      </div>
+      <button
+        className="primary full"
+        onClick={async () => {
+          const saved = { ...form, id: "main" as const };
+          await db.settings.put(saved);
+          onSaved(saved);
+        }}
+      >
+        保存设置
+      </button>
+      <button className="danger full" onClick={clearAll}>
+        清空全部数据
+      </button>
+    </Modal>
+  );
+}
+function shiftMonth(iso: string, delta: number) {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(1);
+  d.setMonth(d.getMonth() + delta);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
+}
