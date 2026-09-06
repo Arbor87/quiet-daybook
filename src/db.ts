@@ -17,18 +17,35 @@ export interface Expense {
 export interface Budget { id: string; month: string; category: string; limitCny: number; startDate?: string }
 export interface Balance { id: string; name: string; amountCny: number; location: string; note?: string; createdAt: string; updatedAt: string }
 export interface Settings { id: 'main'; aiBaseUrl: string; aiModel: string; aiApiKey: string; confidenceThreshold: number; categories: string[] }
+export interface ApiKey { id: string; name: string; service: string; key: string; note?: string; createdAt: string; updatedAt: string }
+export interface SyncChange { id?: number; collection: SyncCollection; recordId: string; updatedAt: string; deleted?: boolean }
+export type SyncCollection = 'tasks' | 'ideas' | 'expenses' | 'budgets' | 'balances'
 
 class DaybookDB extends Dexie {
   tasks!: Table<Task, string>; ideas!: Table<Idea, string>; expenses!: Table<Expense, string>
-  budgets!: Table<Budget, string>; balances!: Table<Balance, string>; settings!: Table<Settings, string>
+  budgets!: Table<Budget, string>; balances!: Table<Balance, string>; settings!: Table<Settings, string>; apiKeys!: Table<ApiKey, string>; syncChanges!: Table<SyncChange, number>
   constructor() {
     super('quiet-daybook')
     this.version(1).stores({ tasks: 'id,date,status', ideas: 'id,date', expenses: 'id,date,category', budgets: 'id,month,category', settings: 'id' })
     this.version(2).stores({ balances: 'id,location' })
+    this.version(3).stores({ apiKeys: 'id,service' })
+    this.version(4).stores({ syncChanges: '++id,collection,recordId,updatedAt' })
   }
 }
 
 export const db = new DaybookDB()
+let captureSyncChanges = true
+export const setSyncCaptureEnabled = (enabled: boolean) => { captureSyncChanges = enabled }
+
+// Capture local mutations so deletes can be propagated to other devices.
+const syncTables: Array<[SyncCollection, Table<any, string>]> = [
+  ['tasks', db.tasks], ['ideas', db.ideas], ['expenses', db.expenses], ['budgets', db.budgets], ['balances', db.balances],
+]
+for (const [collection, table] of syncTables) {
+  table.hook('creating', (_key, obj) => { if (captureSyncChanges) void db.syncChanges.add({ collection, recordId: obj.id, updatedAt: obj.updatedAt ?? new Date().toISOString() }) })
+  table.hook('updating', (_changes, _key, obj) => { if (captureSyncChanges) void db.syncChanges.add({ collection, recordId: obj.id, updatedAt: obj.updatedAt ?? new Date().toISOString() }) })
+  table.hook('deleting', (key, _obj) => { if (captureSyncChanges) void db.syncChanges.add({ collection, recordId: String(key), updatedAt: new Date().toISOString(), deleted: true }) })
+}
 export const uid = () => crypto.randomUUID()
 export const localISODate = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 export const todayISO = () => localISODate()

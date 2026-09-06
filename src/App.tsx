@@ -7,6 +7,9 @@ import {
   Circle,
   CircleDot,
   Download,
+  Eye,
+  EyeOff,
+  KeyRound,
   Lightbulb,
   ListTodo,
   Plus,
@@ -26,6 +29,7 @@ import {
   todayISO,
   uid,
   type Balance,
+  type ApiKey,
   type Budget,
   type Expense,
   type Idea,
@@ -34,6 +38,8 @@ import {
   type Task,
   type TaskStatus,
 } from "./db";
+import { supabase, supabaseConfigured } from "./supabase";
+import { syncUser, type SyncResult } from "./sync";
 
 type Tab = "today" | "calendar" | "ideas" | "wallet";
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -168,11 +174,16 @@ export default function App() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [balances, setBalances] = useState<Balance[]>([]);
   const [settings, setSettings] = useState<Settings>(defaultSettings);
+  const [session, setSession] = useState<any>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncResult>("synced");
   const reloadVersion = useRef(0);
   const [showTask, setShowTask] = useState(false);
   const [showIdea, setShowIdea] = useState(false);
   const [showExpense, setShowExpense] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showKeyManager, setShowKeyManager] = useState(false);
+  const [showQwenKey, setShowQwenKey] = useState(false);
   const [showBudget, setShowBudget] = useState(false);
   const [showBalances, setShowBalances] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -204,13 +215,28 @@ export default function App() {
     setSettings(nextSettings ?? defaultSettings);
   };
   useEffect(() => {
+    let active = true;
+    void supabase.auth.getSession().then(({ data }) => { if (active) { setSession(data.session); setAuthReady(true); } });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => { setSession(next); setAuthReady(true); });
+    return () => { active = false; listener.subscription.unsubscribe(); };
+  }, []);
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const retry = () => { setSyncStatus("pending"); void syncUser(session.user.id).then((result) => { setSyncStatus(result); if (result === "synced") void reload(); }); };
+    window.addEventListener("online", retry);
+    const timer = window.setInterval(() => { if (navigator.onLine) retry(); }, 60000);
     void (async () => {
       const current = await db.settings.get("main");
       const next = current ? migrateLegacyAISettings(current) : defaultSettings;
       await db.settings.put(next);
       await reload();
+      setSyncStatus("pending");
+      const result = await syncUser(session.user.id);
+      setSyncStatus(result);
+      await reload();
     })();
-  }, []);
+    return () => { window.removeEventListener("online", retry); window.clearInterval(timer); };
+  }, [session?.user?.id]);
   useEffect(() => {
     const parts = location.pathname.split("/").filter(Boolean);
     if (parts[0] === "day" && /^\d{4}-\d{2}-\d{2}$/.test(parts[1] ?? "")) {
@@ -236,6 +262,8 @@ export default function App() {
     () => ideas.filter((i) => i.date === selectedDate),
     [ideas, selectedDate],
   );
+  if (!authReady) return <div className="auth-loading">正在恢复登录状态…</div>;
+  if (!session) return <AuthScreen configured={supabaseConfigured} />;
   const nav = (next: Tab) => {
     if (next === "today") navigate(`/day/${todayISO()}`);
     else navigate(`/${next}`);
@@ -328,6 +356,18 @@ export default function App() {
         <div className="brand-mark">静日</div>
         <div className="brand-sub">MY DAY OS</div>
         <div className="top-actions">
+          <button
+            className="icon-btn"
+            onClick={() => setShowKeyManager(true)}
+            title="密钥库"
+            aria-label="打开密钥库"
+          >
+            <KeyRound size={18} />
+          </button>
+          <div className={`sync-indicator ${syncStatus}`} title={session.user.email}>
+            <span />{syncStatus === "synced" ? "已同步" : syncStatus === "pending" ? "待同步" : syncStatus === "error" ? "同步失败" : "同步中"}
+          </div>
+          <button className="account-btn" onClick={() => void supabase.auth.signOut()} title="退出登录">{session.user.email?.split("@")[0] ?? "账号"} · 退出</button>
           <button
             className="icon-btn"
             onClick={() => setShowSettings(true)}
@@ -460,9 +500,28 @@ export default function App() {
         <SettingsModal
           settings={settings}
           onClose={() => setShowSettings(false)}
+          onOpenQwenKeyManager={() => {
+            setShowSettings(false);
+            setShowQwenKey(true);
+          }}
           onSaved={(s: Settings) => {
             setSettings(s);
             setShowSettings(false);
+          }}
+        />
+      )}
+      {showKeyManager && (
+        <KeyManagerModal
+          onClose={() => setShowKeyManager(false)}
+        />
+      )}
+      {showQwenKey && (
+        <QwenKeyModal
+          settings={settings}
+          onClose={() => setShowQwenKey(false)}
+          onSaved={(s: Settings) => {
+            setSettings(s);
+            setShowQwenKey(false);
           }}
         />
       )}
@@ -490,6 +549,23 @@ export default function App() {
       )}
     </div>
   );
+}
+
+function AuthScreen({ configured }: { configured: boolean }) {
+  const [mode, setMode] = useState<"login" | "signup" | "reset">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const submit = async () => {
+    if (!configured) return setMessage("尚未配置 Supabase，请设置 VITE_SUPABASE_URL 和 VITE_SUPABASE_ANON_KEY。");
+    setBusy(true); setMessage("");
+    const result = mode === "reset" ? await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.href }) : mode === "signup" ? await supabase.auth.signUp({ email, password }) : await supabase.auth.signInWithPassword({ email, password });
+    setBusy(false);
+    if (result.error) setMessage(result.error.message);
+    else setMessage(mode === "signup" ? "注册成功，请查收验证邮件后再登录。" : mode === "reset" ? "重置邮件已发送，请检查邮箱。" : "");
+  };
+  return <main className="auth-page"><div className="auth-card"><div className="brand-mark">静日</div><h1>{mode === "login" ? "欢迎回来" : mode === "signup" ? "创建账号" : "重置密码"}</h1><p className="muted">登录后，任务和记录会在设备间同步。</p><label>邮箱<input type="email" value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" /></label>{mode !== "reset" && <label>密码<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} /></label>}{message && <p className="auth-message">{message}</p>}<button className="primary full" disabled={busy || !email || (mode !== "reset" && !password)} onClick={() => void submit()}>{busy ? "处理中…" : mode === "login" ? "登录" : mode === "signup" ? "注册" : "发送重置邮件"}</button><div className="auth-links">{mode === "login" ? <><button onClick={() => setMode("signup")}>创建账号</button><button onClick={() => setMode("reset")}>忘记密码</button></> : <button onClick={() => setMode("login")}>返回登录</button>}</div></div></main>;
 }
 
 function CrayonMascot() {
@@ -1752,10 +1828,12 @@ function BudgetModal({
 function SettingsModal({
   settings,
   onClose,
+  onOpenQwenKeyManager,
   onSaved,
 }: {
   settings: Settings;
   onClose: () => void;
+  onOpenQwenKeyManager: () => void;
   onSaved: (settings: Settings) => void;
 }) {
   const [form, setForm] = useState(settings);
@@ -1866,26 +1944,18 @@ function SettingsModal({
           <option value="qwen-max" />
         </datalist>
       </label>
-      <label>
-        百炼 API Key
-        <input
-          type="password"
-          value={form.aiApiKey}
-          onChange={(e) => setForm({ ...form, aiApiKey: e.target.value })}
-          placeholder="sk-...；可留空使用本地解析"
-        />
-      </label>
-      <p className="form-hint">
-        在{" "}
-        <a
-          href="https://bailian.console.aliyun.com/?tab=model#/api-key"
-          target="_blank"
-          rel="noreferrer"
-        >
-          阿里云百炼控制台
-        </a>
-        创建 Key。Key 只保存在本机 IndexedDB，不会进入备份；不要在公共电脑保存。
-      </p>
+      <div className="key-settings-card">
+        <div className="key-settings-copy">
+          <KeyRound size={18} />
+          <div>
+            <strong>百炼 API 密钥</strong>
+            <span>{form.aiApiKey ? "已配置 · 仅保存在本机" : "尚未配置，可使用本地解析"}</span>
+          </div>
+        </div>
+        <button className="key-manage-btn" onClick={onOpenQwenKeyManager}>
+          编辑配置
+        </button>
+      </div>
       <div className="settings-actions">
         <button onClick={exportData}>
           <Download size={16} /> 导出 JSON
@@ -1908,6 +1978,108 @@ function SettingsModal({
       <button className="danger full" onClick={clearAll}>
         清空全部数据
       </button>
+    </Modal>
+  );
+}
+
+function QwenKeyModal({
+  settings,
+  onClose,
+  onSaved,
+}: {
+  settings: Settings;
+  onClose: () => void;
+  onSaved: (settings: Settings) => void;
+}) {
+  const [key, setKey] = useState(settings.aiApiKey);
+  const [visible, setVisible] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<"success" | "error" | null>(null);
+  const masked = key ? `${key.slice(0, 5)}••••••••${key.slice(-4)}` : "";
+  const save = async () => {
+    const next = { ...settings, aiApiKey: key.trim(), id: "main" as const };
+    await db.settings.put(next);
+    onSaved(next);
+  };
+  const testConnection = async () => {
+    if (!key.trim()) return setTestResult("error");
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const response = await fetch(`${settings.aiBaseUrl.replace(/\/$/, "")}/models`, {
+        headers: { Authorization: `Bearer ${key.trim()}` },
+      });
+      setTestResult(response.ok ? "success" : "error");
+    } catch {
+      setTestResult("error");
+    } finally {
+      setTesting(false);
+    }
+  };
+  return (
+    <Modal title="密钥管理" onClose={onClose}>
+      <div className="key-modal-intro">
+        <div className="key-seal"><KeyRound size={22} /></div>
+        <div>
+          <h3>百炼 API Key</h3>
+          <p>用于智能记账解析。密钥只保存在本机 IndexedDB，不会进入备份文件。</p>
+        </div>
+      </div>
+      <label className="key-field-label">
+        当前密钥
+        <div className="key-input-wrap">
+          <input
+            type={visible ? "text" : "password"}
+            value={visible ? key : masked}
+            onChange={(e) => setKey(e.target.value)}
+            onFocus={() => !visible && setVisible(true)}
+            placeholder="sk-..."
+            autoComplete="off"
+          />
+          <button type="button" className="key-visibility" onClick={() => setVisible(!visible)} aria-label={visible ? "隐藏密钥" : "显示密钥"}>
+            {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        </div>
+      </label>
+      <div className="key-meta"><span className={key ? "status-dot-label ready" : "status-dot-label"}></span>{key ? "已填写" : "未配置"}</div>
+      {testResult && <p className={testResult === "success" ? "key-test success" : "key-test error"}>{testResult === "success" ? "连接成功，可以开始使用智能解析。" : "连接失败，请检查密钥和 API 地址。"}</p>}
+      <div className="key-modal-actions">
+        <button className="key-clear-btn" onClick={() => { setKey(""); setTestResult(null); }}>清除密钥</button>
+        <button className="key-test-btn" onClick={testConnection} disabled={testing}>{testing ? "测试中…" : "测试连接"}</button>
+        <button className="primary" onClick={save}>保存密钥</button>
+      </div>
+      <p className="form-hint">还没有 Key？前往 <a href="https://bailian.console.aliyun.com/?tab=model#/api-key" target="_blank" rel="noreferrer">阿里云百炼控制台</a> 创建。</p>
+    </Modal>
+  );
+}
+
+function KeyManagerModal({ onClose }: { onClose: () => void }) {
+  const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [draft, setDraft] = useState({ name: "", service: "", key: "", note: "" });
+  const [visible, setVisible] = useState<string | null>(null);
+  useEffect(() => { void db.apiKeys.toArray().then(setKeys); }, []);
+  const save = async () => {
+    if (!draft.name.trim() || !draft.key.trim()) return;
+    const now = new Date().toISOString();
+    const item: ApiKey = { id: uid(), name: draft.name.trim(), service: draft.service.trim() || "其他", key: draft.key.trim(), note: draft.note.trim() || undefined, createdAt: now, updatedAt: now };
+    await db.apiKeys.add(item);
+    setKeys((current) => [item, ...current]);
+    setDraft({ name: "", service: "", key: "", note: "" });
+  };
+  const remove = async (id: string) => { if (!window.confirm("确定删除这条密钥吗？")) return; await db.apiKeys.delete(id); setKeys((current) => current.filter((item) => item.id !== id)); };
+  const copy = async (value: string) => { await navigator.clipboard?.writeText(value); };
+  return (
+    <Modal title="密钥库" onClose={onClose}>
+      <p className="settings-note">把常用的 API、服务令牌或测试密钥集中放在这里。仅保存在本机，不会同步或导出。</p>
+      <div className="vault-list">
+        {keys.length === 0 && <div className="empty-inline">还没有密钥，先添加一条吧。</div>}
+        {keys.map((item) => <div className="vault-item" key={item.id}>
+          <div className="vault-item-main"><div className="vault-icon"><KeyRound size={15} /></div><div><strong>{item.name}</strong><span>{item.service}{item.note ? ` · ${item.note}` : ""}</span></div></div>
+          <code>{visible === item.id ? item.key : `${item.key.slice(0, 4)}••••${item.key.slice(-3)}`}</code>
+          <div className="vault-actions"><button onClick={() => setVisible(visible === item.id ? null : item.id)}>{visible === item.id ? <EyeOff size={14} /> : <Eye size={14} />}</button><button onClick={() => copy(item.key)} title="复制"><span>复制</span></button><button className="vault-delete" onClick={() => remove(item.id)}><Trash2 size={14} /></button></div>
+        </div>)}
+      </div>
+      <div className="vault-form"><h3>添加密钥</h3><div className="vault-fields"><label>名称<input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="例如：GitHub Token" /></label><label>服务<input value={draft.service} onChange={(e) => setDraft({ ...draft, service: e.target.value })} placeholder="例如：GitHub" /></label><label className="wide">密钥<input type="password" value={draft.key} onChange={(e) => setDraft({ ...draft, key: e.target.value })} placeholder="粘贴密钥内容" /></label><label className="wide">备注（可选）<input value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} placeholder="用途、环境或到期提醒" /></label></div><button className="primary full" onClick={save} disabled={!draft.name.trim() || !draft.key.trim()}>添加到密钥库</button></div>
     </Modal>
   );
 }
