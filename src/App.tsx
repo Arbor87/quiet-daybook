@@ -42,7 +42,6 @@ import {
   type TimeEvent,
 } from "./db";
 import { supabase, supabaseConfigured } from "./supabase";
-import { syncUser, type SyncResult } from "./sync";
 
 type Tab = "today" | "calendar" | "ideas" | "wallet" | "time";
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -183,7 +182,6 @@ export default function App() {
   const [timeEvents, setTimeEvents] = useState<TimeEvent[]>([]);
   const [session, setSession] = useState<any>(null);
   const [authReady, setAuthReady] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<SyncResult>("pending");
   const reloadVersion = useRef(0);
   const [showTask, setShowTask] = useState(false);
   const [showIdea, setShowIdea] = useState(false);
@@ -244,30 +242,12 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!session?.user?.id) return;
-    let active = true;
-    const synchronize = async () => {
-      if (!active) return;
-      setSyncStatus("pending");
-      const result = await syncUser(session.user.id);
-      if (!active) return;
-      setSyncStatus(result);
-      if (result === "synced") await reload();
-    };
-    const online = () => void synchronize();
     void (async () => {
       const current = await db.settings.get("main");
       const next = current ? migrateLegacyAISettings(current) : defaultSettings;
       await db.settings.put(next);
       await reload();
-      await synchronize();
     })();
-    window.addEventListener("online", online);
-    const timer = window.setInterval(() => { if (navigator.onLine) void synchronize(); }, 60000);
-    return () => {
-      active = false;
-      window.removeEventListener("online", online);
-      window.clearInterval(timer);
-    };
   }, [session?.user?.id]);
   useEffect(() => {
     const parts = location.pathname.split("/").filter(Boolean);
@@ -391,9 +371,7 @@ export default function App() {
         <div className="brand-mark">静日</div>
         <div className="brand-sub">MY DAY OS</div>
         <div className="top-actions">
-          <div className={`sync-indicator ${syncStatus}`} title={session.user.email}>
-            <span />{syncStatus === "synced" ? "账号已同步" : syncStatus === "pending" ? "同步中" : "同步失败"}
-          </div>
+          <div className="sync-indicator" title="数据仅保存在当前浏览器"><span />仅本机保存</div>
           <button className="account-btn" onClick={() => void supabase.auth.signOut()} title="退出登录">{session.user.email?.split("@")[0] ?? "账号"} · 退出</button>
           <button
             className="icon-btn"
@@ -582,11 +560,6 @@ export default function App() {
           onSaved={() => {
             setShowBalances(false);
             void reload();
-            setSyncStatus("pending");
-            void syncUser(session.user.id).then(async (result) => {
-              setSyncStatus(result);
-              if (result === "synced") await reload();
-            });
           }}
         />
       )}
@@ -1243,7 +1216,8 @@ function TimeView({ rules, events, onReward, onManage, onEdit, onDelete, onSaved
   useEffect(() => { if (!running) return; const id = window.setInterval(() => setRemaining((v: number) => { if (v <= 1) { setRunning(false); void finish(minutes); return 0; } return v - 1; }), 60000); return () => window.clearInterval(id); }, [running]);
   const finish = async (planned: number) => { const used = Math.max(0, planned - Math.ceil(remaining / 60)); if (used > 0) { const now = new Date().toISOString(); await db.timeEvents.add({ id: uid(), date: today, ruleId: "study", ruleTitleSnapshot: "学习", type: "study", minutes: used, count: 1, createdAt: now, updatedAt: now }); onSaved(); } };
   const start = () => { const m = Math.max(1, Math.floor(minutes)); if (m <= balance) { setRemaining(m * 60); setRunning(true); } };
-  return <section className="page page-time"><div className="page-title"><div><p className="eyebrow">TIME MANAGEMENT</p><h1>时间管理</h1><p className="muted">把输掉的对局，换成赢回来的专注。</p></div><button className="primary" onClick={onManage}>管理板块</button></div><div className="time-balance panel"><p>学习时间余额</p><strong>{Math.floor(balance / 60)}小时 {balance % 60}分</strong><div className="time-stats"><span>今日获得 <b>{todayReward} 分钟</b></span><span>今日学习 <b>{todayStudy} 分钟</b></span><span>净增加 <b>{todayReward - todayStudy} 分钟</b></span></div></div><div className="time-timer panel"><div><p className="eyebrow">FOCUS TIMER</p><h2>{running ? `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}` : "开始一段学习"}</h2></div>{!running ? <div className="timer-start"><input type="number" min="1" value={minutes} onChange={e => setMinutes(Number(e.target.value))} /><span>分钟</span><button className="primary" disabled={minutes > balance || minutes < 1} onClick={start}>开始学习</button></div> : <button className="danger" onClick={() => { setRunning(false); void finish(minutes); }}>结束并记录</button>}</div><div className="time-rule-grid">{rules.filter(r => r.enabled).sort((a,b) => a.sortOrder-b.sortOrder).map(r => { const count = events.filter(e => e.date === today && e.ruleId === r.id && e.type === "reward").reduce((n,e)=>n+e.count,0); return <div className="time-rule-card panel" key={r.id} style={{borderTopColor:r.color}}><div className="time-rule-icon">{r.icon}</div><div className="time-rule-copy"><h2>{r.title}</h2><p>{r.description}</p><small>今日 {count} 次 · 每次 +{r.minutesPerClick} 分钟</small></div><button className="primary" onClick={() => onReward(r)}>{r.buttonLabel}</button><div className="time-rule-actions"><button onClick={() => onEdit(r)}>编辑</button><button onClick={() => onDelete(r)}>删除</button></div></div>})}</div><div className="panel"><div className="panel-head"><h2>最近记录</h2></div>{events.slice(0,10).map(e => <div className="time-event" key={e.id}><span>{e.date}</span><b>{e.ruleTitleSnapshot}</b><em className={e.type}>{e.type === "reward" ? `+${e.minutes}` : `-${e.minutes}`} 分钟</em></div>)}</div></section>;
+  const deleteEvent = async (event: TimeEvent) => { if (!window.confirm("确定删除这条时间记录吗？余额会随之重新计算。")) return; await db.timeEvents.delete(event.id); onSaved(); };
+  return <section className="page page-time"><div className="page-title"><div><p className="eyebrow">TIME MANAGEMENT</p><h1>时间管理</h1><p className="muted">把输掉的对局，换成赢回来的专注。</p></div><button className="primary" onClick={onManage}>管理板块</button></div><div className="time-balance panel"><p>学习时间余额</p><strong>{Math.floor(balance / 60)}小时 {balance % 60}分</strong><div className="time-stats"><span>今日获得 <b>{todayReward} 分钟</b></span><span>今日学习 <b>{todayStudy} 分钟</b></span><span>净增加 <b>{todayReward - todayStudy} 分钟</b></span></div></div><div className="time-timer panel"><div><p className="eyebrow">FOCUS TIMER</p><h2>{running ? `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}` : "开始一段学习"}</h2></div>{!running ? <div className="timer-start"><input type="number" min="1" value={minutes} onChange={e => setMinutes(Number(e.target.value))} /><span>分钟</span><button className="primary" disabled={minutes > balance || minutes < 1} onClick={start}>开始学习</button></div> : <button className="danger" onClick={() => { setRunning(false); void finish(minutes); }}>结束并记录</button>}</div><div className="time-rule-grid">{rules.filter(r => r.enabled).sort((a,b) => a.sortOrder-b.sortOrder).map(r => { const count = events.filter(e => e.date === today && e.ruleId === r.id && e.type === "reward").reduce((n,e)=>n+e.count,0); return <div className="time-rule-card panel" key={r.id} style={{borderTopColor:r.color}}><div className="time-rule-icon">{r.icon}</div><div className="time-rule-copy"><h2>{r.title}</h2><p>{r.description}</p><small>今日 {count} 次 · 每次 +{r.minutesPerClick} 分钟</small></div><button className="primary" onClick={() => onReward(r)}>{r.buttonLabel}</button><div className="time-rule-actions"><button onClick={() => onEdit(r)}>编辑</button><button onClick={() => onDelete(r)}>删除</button></div></div>})}</div><div className="panel"><div className="panel-head"><h2>最近记录</h2></div>{events.slice(0,10).map(e => <div className="time-event" key={e.id}><span>{e.date}</span><b>{e.ruleTitleSnapshot}</b><em className={e.type}>{e.type === "reward" ? `+${e.minutes}` : `-${e.minutes}`} 分钟</em><button className="time-event-delete" onClick={() => void deleteEvent(e)} aria-label="删除记录" title="删除记录"><Trash2 size={15} /></button></div>)}</div></section>;
 }
 
 function TimeRuleModal({ initial, onClose, onSaved }: { initial: TimeRule | null; onClose: () => void; onSaved: (r: TimeRule) => void }) {
