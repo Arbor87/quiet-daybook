@@ -191,14 +191,16 @@ h2 { color: var(--ink); }
   background-size: 28px 28px;
   padding: 20px;
 }
-.week-head span { color: #a08d79; }
+.week-head span { color: #a08d79; min-width: 0; }
+.week-head, .calendar-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); min-width: 0; }
 .day-cell { border-radius: 9px; }
+.day-cell { min-width: 0; overflow: hidden; }
 .day-cell:hover { background: #fff0c1; transform: rotate(-2deg); }
 .day-cell.selected { background: var(--blue); box-shadow: 3px 4px 0 #b9c8ff; transform: rotate(-2deg); }
 .day-cell.today:not(.selected) b { background: var(--coral); color: #fff; }
 .day-mark { background: #ffd85b; color: var(--ink); border-radius: 999px; width: 18px; margin: 3px auto 0; }
 .selected .day-mark { background: #fff; color: var(--blue); }
-.day-counts { display: flex; justify-content: center; gap: 3px; margin-top: 4px; min-height: 17px; }
+.day-counts { display: flex; justify-content: center; gap: 3px; margin: 4px auto 0; min-height: 17px; min-width: 0; max-width: 100%; overflow: hidden; }
 .day-counts i, .calendar-legend i { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px; font: 700 10px 'DM Mono'; font-style: normal; }
 .done-count { background: #ccebd3; color: #27633a; }
 .pending-count { background: #ffd9d0; color: #b95345; }
